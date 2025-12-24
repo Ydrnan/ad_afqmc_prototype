@@ -52,8 +52,8 @@ def init_walkers(
         z_up = jnp.zeros((norb, ndn))
         z_dn = jnp.zeros((norb, nup))
 
-        top = jnp.concatenate([natorbs_up, z_up], axis=1)  # (norb, ne)
-        bot = jnp.concatenate([z_dn, natorbs_dn], axis=1)  # (norb, ne)
+        top = jnp.concatenate([natorbs_up, z_up], axis=1) + 0.0j  # (norb, ne)
+        bot = jnp.concatenate([z_dn, natorbs_dn], axis=1) + 0.0j  # (norb, ne)
         w0 = jnp.concatenate([top, bot], axis=0)  # (2*norb, ne)
 
         return jnp.broadcast_to(w0, (n_walkers, *w0.shape))
@@ -70,12 +70,12 @@ def init_walkers(
     if wk == "restricted":
         dm_tot = dm_up + dm_dn
         natorbs = _natorbs(dm_tot, nup)  # (norb, nup)
-        w0 = natorbs
+        w0 = natorbs + 0.0j
         return jnp.broadcast_to(w0, (n_walkers, *w0.shape))
 
     if wk == "unrestricted":
-        natorbs_up = _natorbs(dm_up, nup)
-        natorbs_dn = _natorbs(dm_dn, ndn)
+        natorbs_up = _natorbs(dm_up, nup) + 0.0j
+        natorbs_dn = _natorbs(dm_dn, ndn) + 0.0j
         wu = jnp.broadcast_to(natorbs_up, (n_walkers, *natorbs_up.shape))
         wd = jnp.broadcast_to(natorbs_dn, (n_walkers, *natorbs_dn.shape))
         return (wu, wd)
