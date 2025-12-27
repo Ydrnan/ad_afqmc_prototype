@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 from typing import Any, Callable, NamedTuple, Tuple
 
 import jax
@@ -10,6 +9,8 @@ from jax import lax, tree_util
 
 from ..ham.chol import ham_chol
 from .utils import taylor_expm_action
+
+# contains low level details of AFQMC chol propagation
 
 
 @tree_util.register_pytree_node_class
@@ -42,9 +43,8 @@ class chol_afqmc_ctx:
         )
 
 
-class chol_afqmc_ops(NamedTuple):
+class trotter_ops(NamedTuple):
     n_fields: Callable[[], int]
-    build_prop_ctx: Callable[[jax.Array, float], chol_afqmc_ctx]  # (rdm1, dt)->ctx
     apply_trotter: Callable[
         [Any, jax.Array, chol_afqmc_ctx, int], Any
     ]  # (w, field, ctx, n_terms)->w
@@ -212,19 +212,16 @@ def _apply_trotter_g_from_restricted(
     return _apply_one_body_half_generalized_from_restricted(w2, prop_ctx, norb=norb)
 
 
-def make_chol_afqmc_ops(ham_data: ham_chol, walker_kind: str) -> chol_afqmc_ops:
+def make_trotter_ops(ham_data: ham_chol, walker_kind: str) -> trotter_ops:
     walker_kind = walker_kind.lower()
     nf = int(ham_data.chol.shape[0])
 
     def n_fields_() -> int:
         return nf
 
-    build_prop_ctx = partial(_build_prop_ctx, ham_data)
-
     n = int(ham_data.chol.shape[1])
     chol_flat = ham_data.chol.reshape(nf, -1)
 
-    # keep your pylance-friendly closure instead of functools.partial
     def make_vhs(field: jax.Array, *, chol_flat=chol_flat, n=n) -> jax.Array:
         return _make_vhs_split_flat(chol_flat=chol_flat, x=field, n=n)
 
@@ -238,20 +235,20 @@ def make_chol_afqmc_ops(ham_data: ham_chol, walker_kind: str) -> chol_afqmc_ops:
             apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_r(
                 w, f, ctx, n_terms, make_vhs=mv
             )
-            return chol_afqmc_ops(n_fields_, build_prop_ctx, apply_trotter)
+            return trotter_ops(n_fields_, apply_trotter)
 
         if walker_kind == "unrestricted":
             apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_u(
                 w, f, ctx, n_terms, make_vhs=mv
             )
-            return chol_afqmc_ops(n_fields_, build_prop_ctx, apply_trotter)
+            return trotter_ops(n_fields_, apply_trotter)
 
         if walker_kind == "generalized":
             norb = int(ham_data.chol.shape[1])
             apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs, norb=norb: _apply_trotter_g_from_restricted(
                 w, f, ctx, n_terms, make_vhs=mv, norb=norb
             )
-            return chol_afqmc_ops(n_fields_, build_prop_ctx, apply_trotter)
+            return trotter_ops(n_fields_, apply_trotter)
 
         raise ValueError(f"unknown walker_kind: {walker_kind}")
 
@@ -259,4 +256,4 @@ def make_chol_afqmc_ops(ham_data: ham_chol, walker_kind: str) -> chol_afqmc_ops:
     apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_r(
         w, f, ctx, n_terms, make_vhs=mv
     )
-    return chol_afqmc_ops(n_fields_, build_prop_ctx, apply_trotter)
+    return trotter_ops(n_fields_, apply_trotter)

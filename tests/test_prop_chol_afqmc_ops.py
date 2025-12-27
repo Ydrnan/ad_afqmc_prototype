@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import pytest
 
 from ad_afqmc_prototype.ham.chol import ham_chol
-from ad_afqmc_prototype.prop.chol_afqmc_ops import make_chol_afqmc_ops
+from ad_afqmc_prototype.prop.chol_afqmc_ops import _build_prop_ctx, make_trotter_ops
 
 
 def _make_small_ham(*, norb=4, n_fields=3, h0=0.0, seed=0):
@@ -22,12 +22,12 @@ def test_build_prop_ctx_shapes_and_nfields():
     norb, n_fields = 5, 7
     ham = _make_small_ham(norb=norb, n_fields=n_fields, h0=0.0)
 
-    ops = make_chol_afqmc_ops(ham, walker_kind="restricted")
+    ops = make_trotter_ops(ham, walker_kind="restricted")
     assert ops.n_fields() == n_fields
 
     dm = jnp.zeros((norb, norb))
     dt = 0.2
-    ctx = ops.build_prop_ctx(dm, dt)
+    ctx = _build_prop_ctx(ham, dm, dt)
 
     assert ctx.mf_shifts.shape == (n_fields,)
     assert ctx.exp_h1_half.shape == (norb, norb)

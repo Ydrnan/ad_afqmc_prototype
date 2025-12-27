@@ -10,8 +10,13 @@ from ..core.ops import k_energy, k_force_bias, meas_ops, trial_ops
 from ..core.system import system
 from ..ham.chol import ham_chol
 from ..walkers import init_walkers
-from .chol_afqmc_ops import chol_afqmc_ctx, chol_afqmc_ops
-from .types import afqmc_params, prop_state
+from .chol_afqmc_ops import (
+    _build_prop_ctx,
+    chol_afqmc_ctx,
+    make_trotter_ops,
+    trotter_ops,
+)
+from .types import afqmc_params, prop_ops, prop_state
 
 
 def init_prop_state(
@@ -23,6 +28,7 @@ def init_prop_state(
     trial_ops_: trial_ops,
     trial_data: Any,
     meas_ops: meas_ops,
+    params: afqmc_params,
     initial_walkers: Any | None = None,
     initial_e_estimate: jax.Array | None = None,
 ) -> prop_state:
@@ -38,7 +44,9 @@ def init_prop_state(
         )
 
     overlaps = wk.apply_chunked(
-        initial_walkers, trial_ops_.overlap, n_chunks=1, trial_data=trial_data
+        initial_walkers,
+        lambda w: meas_ops.overlap(w, trial_data),
+        n_chunks=params.n_chunks,
     )
 
     e_est = None
@@ -50,11 +58,8 @@ def init_prop_state(
         e_samples = jnp.real(
             wk.apply_chunked(
                 initial_walkers,
-                e_kernel,
-                n_chunks=1,
-                ham_data=ham_data,
-                meas_ctx=meas_ctx,
-                trial_data=trial_data,
+                lambda w: e_kernel(w, ham_data, meas_ctx, trial_data),
+                n_chunks=params.n_chunks,
             )
         )
         e_est = jnp.mean(e_samples)
@@ -81,20 +86,20 @@ def afqmc_step(
     ham_data: ham_chol,
     trial_data: Any,
     meas_ops: meas_ops,
-    prop_ops: chol_afqmc_ops,
+    trotter_ops: trotter_ops,
     prop_ctx: chol_afqmc_ctx,
     meas_ctx: Any,
 ) -> prop_state:
 
     key, subkey = jax.random.split(state.rng_key)
     nw = wk.n_walkers(state.walkers)
-    fields = jax.random.normal(subkey, (nw, prop_ops.n_fields()))
+    fields = jax.random.normal(subkey, (nw, trotter_ops.n_fields()))
 
     fb_kernel = meas_ops.require_kernel(k_force_bias)
-    # these calls look a bit unclear, ham_data, meas_ctx, trial_data are
-    # passed as to force_bias_kernel
     force_bias = wk.apply_chunked(
-        state.walkers, fb_kernel, params.n_chunks, ham_data, meas_ctx, trial_data
+        state.walkers,
+        lambda w: fb_kernel(w, ham_data, meas_ctx, trial_data),
+        n_chunks=params.n_chunks,
     )
 
     field_shifts = -prop_ctx.sqrt_dt * (1.0j * force_bias - prop_ctx.mf_shifts)
@@ -106,14 +111,12 @@ def afqmc_step(
     walkers_new = wk.apply_chunked_prop(
         state.walkers,
         shifted_fields,
-        prop_ops.apply_trotter,
-        params.n_chunks,
-        prop_ctx,
-        params.n_exp_terms,
+        lambda w, f: trotter_ops.apply_trotter(w, f, prop_ctx, params.n_exp_terms),
+        n_chunks=params.n_chunks,
     )
 
     overlaps_new = wk.apply_chunked(
-        walkers_new, meas_ops.overlap, params.n_chunks, trial_data
+        walkers_new, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
     )
 
     ratio = overlaps_new / state.overlaps
@@ -150,3 +153,35 @@ def afqmc_step(
         e_estimate=state.e_estimate,
         node_encounters=node_encounters_new,
     )
+
+
+def make_prop_ops(ham_data: ham_chol, walker_kind: str) -> prop_ops:
+    trotter_ops = make_trotter_ops(ham_data, walker_kind)
+
+    def step(
+        state: prop_state,
+        *,
+        params: afqmc_params,
+        ham_data: Any,
+        trial_data: Any,
+        meas_ops: meas_ops,
+        meas_ctx: Any,
+        prop_ctx: Any,
+    ) -> prop_state:
+        return afqmc_step(
+            state,
+            params=params,
+            ham_data=ham_data,
+            trial_data=trial_data,
+            meas_ops=meas_ops,
+            meas_ctx=meas_ctx,
+            prop_ctx=prop_ctx,
+            trotter_ops=trotter_ops,
+        )
+
+    def build_prop_ctx(
+        ham_data: Any, trial_data: Any, params: afqmc_params
+    ) -> chol_afqmc_ctx:
+        return _build_prop_ctx(ham_data, trial_data, params.dt)
+
+    return prop_ops(build_prop_ctx=build_prop_ctx, step=step)

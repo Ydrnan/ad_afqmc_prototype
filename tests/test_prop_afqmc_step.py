@@ -6,7 +6,7 @@ from ad_afqmc_prototype.core.ops import meas_ops, trial_ops
 from ad_afqmc_prototype.core.system import system
 from ad_afqmc_prototype.ham.chol import ham_chol
 from ad_afqmc_prototype.prop.afqmc import afqmc_step
-from ad_afqmc_prototype.prop.chol_afqmc_ops import make_chol_afqmc_ops
+from ad_afqmc_prototype.prop.chol_afqmc_ops import _build_prop_ctx, make_trotter_ops
 from ad_afqmc_prototype.prop.types import afqmc_params, prop_state
 
 
@@ -14,7 +14,7 @@ def _make_dummy_trial_ops():
     def get_rdm1(trial_data):
         return trial_data["rdm1"]
 
-    def overlap(_walker, _trial):
+    def overlap(walker, trial_data):
         return jnp.asarray(1.0 + 0.0j)
 
     return trial_ops(overlap=overlap, get_rdm1=get_rdm1)
@@ -24,21 +24,17 @@ def _make_dummy_meas_ops():
     def build_meas_ctx(_ham, _trial):
         return None
 
-    kernels = {}
-
-    def overlap(_walker, _trial):
+    def overlap(walker, trial_data):
         return jnp.asarray(1.0 + 0.0j)
 
-    def force_bias_kernel(walker, _ham, _meas_ctx, _trial):
-        n_fields = _ham.chol.shape[0]
+    def force_bias_kernel(walker, ham_data, meas_ctx, trial_data):
+        n_fields = ham_data.chol.shape[0]
         return jnp.zeros((n_fields,), dtype=walker.dtype)
-
-    kernels["force_bias"] = force_bias_kernel
 
     return meas_ops(
         overlap=overlap,
         build_meas_ctx=build_meas_ctx,
-        kernels=kernels,
+        kernels={"force_bias": force_bias_kernel},
         observables={},
     )
 
@@ -72,10 +68,11 @@ def test_weight_update_matches_h0_prop_and_pop_control_update():
         rng_key=jax.random.PRNGKey(0),
         pop_control_ene_shift=jnp.asarray(0.0),
         e_estimate=jnp.asarray(0.0),
+        node_encounters=jnp.asarray(0),
     )
 
-    prop_ops = make_chol_afqmc_ops(ham, sys.walker_kind)
-    prop_ctx = prop_ops.build_prop_ctx(trial_data["rdm1"], params.dt)
+    trotter_ops = make_trotter_ops(ham, sys.walker_kind)
+    prop_ctx = _build_prop_ctx(ham, trial_data["rdm1"], params.dt)
     meas_ctx = meas_ops.build_meas_ctx(ham, trial_data)
     out = afqmc_step(
         state,
@@ -83,7 +80,7 @@ def test_weight_update_matches_h0_prop_and_pop_control_update():
         ham_data=ham,
         trial_data=trial_data,
         meas_ops=meas_ops,
-        prop_ops=prop_ops,
+        trotter_ops=trotter_ops,
         prop_ctx=prop_ctx,
         meas_ctx=meas_ctx,
     )
@@ -125,18 +122,19 @@ def test_step_matches_manual_walker_propagation_and_is_chunk_invariant():
         rng_key=jax.random.PRNGKey(0),
         pop_control_ene_shift=jnp.asarray(0.0),
         e_estimate=jnp.asarray(0.0),
+        node_encounters=jnp.asarray(0),
     )
 
-    prop_ops = make_chol_afqmc_ops(ham, sys.walker_kind)
+    trotter_ops = make_trotter_ops(ham, sys.walker_kind)
     meas_ctx = meas_ops.build_meas_ctx(ham, trial_data)
-    prop_ctx = prop_ops.build_prop_ctx(trial_data["rdm1"], params1.dt)
+    prop_ctx = _build_prop_ctx(ham, trial_data["rdm1"], params1.dt)
     out1 = afqmc_step(
         state,
         params=params1,
         ham_data=ham,
         trial_data=trial_data,
         meas_ops=meas_ops,
-        prop_ops=prop_ops,
+        trotter_ops=trotter_ops,
         prop_ctx=prop_ctx,
         meas_ctx=meas_ctx,
     )
@@ -144,8 +142,8 @@ def test_step_matches_manual_walker_propagation_and_is_chunk_invariant():
     key_next, subkey = jax.random.split(state.rng_key)
     fields = jax.random.normal(subkey, (nw, n_fields)).astype(jnp.complex64)
 
-    ops = make_chol_afqmc_ops(ham, "restricted")
-    ctx = ops.build_prop_ctx(trial_data["rdm1"], params1.dt)
+    ops = make_trotter_ops(ham, "restricted")
+    ctx = _build_prop_ctx(ham, trial_data["rdm1"], params1.dt)
 
     def trotter(w, f):
         return ops.apply_trotter(w, f, ctx, params1.n_exp_terms)
@@ -162,7 +160,7 @@ def test_step_matches_manual_walker_propagation_and_is_chunk_invariant():
         ham_data=ham,
         trial_data=trial_data,
         meas_ops=meas_ops,
-        prop_ops=prop_ops,
+        trotter_ops=trotter_ops,
         prop_ctx=prop_ctx,
         meas_ctx=meas_ctx,
     )

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple, Protocol
 
 import jax
-import numpy as np
+
+from ..core.ops import meas_ops
 
 
 class prop_state(NamedTuple):
@@ -31,3 +32,26 @@ class afqmc_params:
     n_blocks: int = 500
     n_walkers: int = 200
     seed: int = 42
+
+
+class step_kernel(Protocol):
+
+    def __call__(
+        self,
+        state: prop_state,
+        *,
+        params: afqmc_params,
+        ham_data: Any,
+        trial_data: Any,
+        meas_ops: meas_ops,
+        meas_ctx: Any,
+        prop_ctx: Any,
+    ) -> prop_state: ...
+
+
+@dataclass(frozen=True)
+class prop_ops:
+    build_prop_ctx: Callable[
+        [Any, Any, afqmc_params], Any
+    ]  # (ham_data, trial_data, params) -> prop_ctx
+    step: step_kernel

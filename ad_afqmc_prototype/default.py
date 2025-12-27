@@ -6,8 +6,8 @@ from . import driver, integrals
 from .core import system
 from .ham.chol import ham_chol
 from .meas.rhf import make_rhf_meas_ops
-from .prop.blocks import afqmc_block
-from .prop.chol_afqmc_ops import make_chol_afqmc_ops
+from .prop.afqmc import make_prop_ops
+from .prop.blocks import block
 from .prop.types import afqmc_params
 from .trial.rhf import make_rhf_trial_ops, rhf_trial
 
@@ -26,12 +26,11 @@ class Rhf:
         self.trial_data = rhf_trial(jnp.eye(mol.nao, mol.nelectron // 2))
         self.trial_ops = make_rhf_trial_ops(sys=sys)
         self.meas_ops = make_rhf_meas_ops(sys=sys)
-        self.prop_ops = make_chol_afqmc_ops(ham_data, sys.walker_kind)
+        self.prop_ops = make_prop_ops(ham_data, sys.walker_kind)
         self.params = afqmc_params(
             n_eql_blocks=20, n_blocks=200, seed=np.random.randint(0, int(1e6))
         )
-        self.block_fn = afqmc_block
-
+        self.block_fn = block
         self.sys = sys
         self.ham_data = ham_data
 
@@ -43,5 +42,6 @@ class Rhf:
             trial_ops=self.trial_ops,
             trial_data=self.trial_data,
             meas_ops=self.meas_ops,
+            prop_ops=self.prop_ops,
             block_fn=self.block_fn,
         )

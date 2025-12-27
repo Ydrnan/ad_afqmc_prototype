@@ -9,56 +9,55 @@ from jax import lax
 from .. import walkers as wk
 from ..core.ops import k_energy, meas_ops
 from ..core.system import system
-from ..ham.chol import ham_chol
-from .afqmc import afqmc_step
-from .chol_afqmc_ops import chol_afqmc_ctx, chol_afqmc_ops
-from .types import afqmc_params, prop_state
+from .types import afqmc_params, prop_ops, prop_state
 
 
 class block_obs(NamedTuple):
     scalars: dict[str, jax.Array]
 
 
-def afqmc_block(
+def block(
     state: prop_state,
     *,
     sys: system,
     params: afqmc_params,
-    ham_data: ham_chol,
+    ham_data: Any,
     trial_data: Any,
     meas_ops: meas_ops,
-    prop_ops: chol_afqmc_ops,
-    prop_ctx: chol_afqmc_ctx,
     meas_ctx: Any,
+    prop_ops: prop_ops,
+    prop_ctx: Any,
 ) -> tuple[prop_state, block_obs]:
     """
     propagation + measurement
     """
+    step = lambda st: prop_ops.step(
+        st,
+        params=params,
+        ham_data=ham_data,
+        trial_data=trial_data,
+        meas_ops=meas_ops,
+        prop_ctx=prop_ctx,
+        meas_ctx=meas_ctx,
+    )
 
     def _scan_step(carry: prop_state, _x: Any):
-        carry = afqmc_step(
-            carry,
-            params=params,
-            ham_data=ham_data,
-            trial_data=trial_data,
-            meas_ops=meas_ops,
-            prop_ops=prop_ops,
-            prop_ctx=prop_ctx,
-            meas_ctx=meas_ctx,
-        )
+        carry = step(carry)
         return carry, None
 
     state, _ = lax.scan(_scan_step, state, xs=None, length=params.n_prop_steps)
 
     walkers_new = wk.orthonormalize(state.walkers, sys.walker_kind)
     overlaps_new = wk.apply_chunked(
-        walkers_new, meas_ops.overlap, params.n_chunks, trial_data
+        walkers_new, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
     )
     state = state._replace(walkers=walkers_new, overlaps=overlaps_new)
 
     e_kernel = meas_ops.require_kernel(k_energy)
     e_samples = wk.apply_chunked(
-        state.walkers, e_kernel, params.n_chunks, ham_data, meas_ctx, trial_data
+        state.walkers,
+        lambda w: e_kernel(w, ham_data, meas_ctx, trial_data),
+        n_chunks=params.n_chunks,
     )
     e_samples = jnp.real(e_samples)
 
@@ -83,7 +82,9 @@ def afqmc_block(
     w_sr, weights_sr = wk.stochastic_reconfiguration(
         state.walkers, state.weights, zeta, sys.walker_kind
     )
-    overlaps_sr = wk.apply_chunked(w_sr, meas_ops.overlap, params.n_chunks, trial_data)
+    overlaps_sr = wk.apply_chunked(
+        w_sr, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
+    )
     state = state._replace(
         walkers=w_sr,
         weights=weights_sr,

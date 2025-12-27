@@ -12,8 +12,7 @@ from .core.system import system
 from .ham.chol import ham_chol
 from .prop.afqmc import init_prop_state
 from .prop.blocks import block_obs
-from .prop.chol_afqmc_ops import make_chol_afqmc_ops
-from .prop.types import afqmc_params, prop_state
+from .prop.types import afqmc_params, prop_ops, prop_state
 from .stat_utils import blocking_analysis_ratio, reject_outliers
 
 print = partial(print, flush=True)
@@ -46,6 +45,7 @@ def run_afqmc_energy(
     trial_data: Any,
     meas_ops: meas_ops,
     trial_ops: trial_ops,
+    prop_ops: prop_ops,
     block_fn: Callable[..., tuple[prop_state, block_obs]],
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
@@ -54,8 +54,8 @@ def run_afqmc_energy(
     Returns:
       (mean_energy, stderr, block_energies, block_weights)
     """
-    prop_ops = make_chol_afqmc_ops(ham_data, sys.walker_kind)
-    prop_ctx = prop_ops.build_prop_ctx(trial_ops.get_rdm1(trial_data), params.dt)
+    # build ctx
+    prop_ctx = prop_ops.build_prop_ctx(ham_data, trial_ops.get_rdm1(trial_data), params)
     meas_ctx = meas_ops.build_meas_ctx(ham_data, trial_data)
     state = init_prop_state(
         sys=sys,
@@ -65,6 +65,7 @@ def run_afqmc_energy(
         trial_ops_=trial_ops,
         trial_data=trial_data,
         meas_ops=meas_ops,
+        params=params,
     )
 
     def block(state_in):
@@ -75,9 +76,9 @@ def run_afqmc_energy(
             ham_data=ham_data,
             trial_data=trial_data,
             meas_ops=meas_ops,
+            meas_ctx=meas_ctx,
             prop_ops=prop_ops,
             prop_ctx=prop_ctx,
-            meas_ctx=meas_ctx,
         )
 
     run_blocks = make_run_blocks(block)
