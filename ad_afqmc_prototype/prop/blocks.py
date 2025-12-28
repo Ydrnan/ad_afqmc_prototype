@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from .. import walkers as wk
-from ..core.ops import MeasOps, k_energy
+from ..core.ops import MeasOps, TrialOps, k_energy
 from ..core.system import System
 from .types import PropOps, PropState, QmcParams
 
@@ -23,6 +23,7 @@ def block(
     params: QmcParams,
     ham_data: Any,
     trial_data: Any,
+    trial_ops: TrialOps,
     meas_ops: MeasOps,
     meas_ctx: Any,
     prop_ops: PropOps,
@@ -36,6 +37,7 @@ def block(
         params=params,
         ham_data=ham_data,
         trial_data=trial_data,
+        trial_ops=trial_ops,
         meas_ops=meas_ops,
         prop_ctx=prop_ctx,
         meas_ctx=meas_ctx,

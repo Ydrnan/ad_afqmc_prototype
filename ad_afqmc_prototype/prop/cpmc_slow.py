@@ -7,10 +7,9 @@ import jax.numpy as jnp
 from jax import lax
 
 from .. import walkers as wk
-from ..core.ops import MeasOps, TrialOps, k_energy
-from ..core.system import System
+from ..core.ops import MeasOps, TrialOps
 from ..ham.hubbard import HamHubbard
-from ..walkers import init_walkers
+from .cpmc import init_prop_state
 from .hubbard_cpmc_ops import (
     HubbardCpmcCtx,
     HubbardCpmcOps,
@@ -18,66 +17,6 @@ from .hubbard_cpmc_ops import (
     make_hubbard_cpmc_ops,
 )
 from .types import PropOps, PropState, QmcParams
-
-
-def init_prop_state(
-    *,
-    sys: System,
-    n_walkers: int,
-    seed: int,
-    ham_data: HamHubbard,
-    trial_ops: TrialOps,
-    trial_data: Any,
-    meas_ops: MeasOps,
-    params: QmcParams,
-    initial_walkers: Any | None = None,
-    initial_e_estimate: jax.Array | None = None,
-) -> PropState:
-    """
-    Initialize CPMC propagation state.
-    """
-    key = jax.random.PRNGKey(int(seed))
-    weights = jnp.ones((n_walkers,))
-
-    if initial_walkers is None:
-        initial_walkers = init_walkers(
-            sys=sys, rdm1=trial_ops.get_rdm1(trial_data), n_walkers=n_walkers
-        )
-
-    initial_walkers = jax.tree_util.tree_map(lambda x: jnp.real(x), initial_walkers)
-
-    overlaps = wk.vmap_chunked(
-        trial_ops.overlap,
-        n_chunks=params.n_chunks,
-        in_axes=(0, None),
-    )(initial_walkers, trial_data)
-    overlaps = jnp.real(overlaps)
-
-    e_est = None
-    if initial_e_estimate is not None:
-        e_est = jnp.asarray(initial_e_estimate)
-    else:
-        meas_ctx = meas_ops.build_meas_ctx(ham_data, trial_data)
-        e_kernel = meas_ops.require_kernel(k_energy)
-        e_samples = jnp.real(
-            wk.vmap_chunked(
-                e_kernel, n_chunks=params.n_chunks, in_axes=(0, None, None, None)
-            )(initial_walkers, ham_data, meas_ctx, trial_data)
-        )
-        e_est = jnp.mean(e_samples)
-    pop_shift = e_est
-
-    node_encounters = jnp.asarray(0)
-
-    return PropState(
-        walkers=initial_walkers,
-        weights=weights,
-        overlaps=overlaps,
-        rng_key=key,
-        pop_control_ene_shift=pop_shift,
-        e_estimate=e_est,
-        node_encounters=node_encounters,
-    )
 
 
 def cpmc_step(
@@ -216,6 +155,7 @@ def make_prop_ops(ham_data: HamHubbard, walker_kind: str) -> PropOps:
         params: QmcParams,
         ham_data: Any,
         trial_data: Any,
+        trial_ops: TrialOps,
         meas_ops: MeasOps,
         meas_ctx: Any,
         prop_ctx: HubbardCpmcCtx,

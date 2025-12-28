@@ -5,7 +5,7 @@ from typing import Any, Callable, NamedTuple, Protocol
 
 import jax
 
-from ..core.ops import MeasOps
+from ..core.ops import MeasOps, TrialOps
 from ..core.system import System
 
 
@@ -44,6 +44,7 @@ class StepKernel(Protocol):
         params: QmcParams,
         ham_data: Any,
         trial_data: Any,
+        trial_ops: TrialOps,
         meas_ops: MeasOps,
         meas_ctx: Any,
         prop_ctx: Any,
@@ -56,10 +57,8 @@ class InitPropState(Protocol):
         self,
         *,
         sys: System,
-        n_walkers: int,
-        seed: int,
         ham_data: Any,
-        trial_ops: Any,
+        trial_ops: TrialOps,
         trial_data: Any,
         meas_ops: MeasOps,
         params: QmcParams,

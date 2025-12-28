@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from functools import partial
+from pprint import pprint
 from typing import Any, Callable
 
 import jax
@@ -45,6 +46,7 @@ def run_qmc_energy(
     trial_ops: TrialOps,
     prop_ops: PropOps,
     block_fn: Callable[..., tuple[PropState, BlockObs]],
+    state: PropState | None = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
     equilibration blocks then sampling blocks.
@@ -52,19 +54,22 @@ def run_qmc_energy(
     Returns:
       (mean_energy, stderr, block_energies, block_weights)
     """
+    print("Starting QMC driver...")
+    print(f"Parameters:")
+    pprint(params)
+    print("")
     # build ctx
     prop_ctx = prop_ops.build_prop_ctx(ham_data, trial_ops.get_rdm1(trial_data), params)
     meas_ctx = meas_ops.build_meas_ctx(ham_data, trial_data)
-    state = prop_ops.init_prop_state(
-        sys=sys,
-        n_walkers=params.n_walkers,
-        seed=params.seed,
-        ham_data=ham_data,
-        trial_ops=trial_ops,
-        trial_data=trial_data,
-        meas_ops=meas_ops,
-        params=params,
-    )
+    if state is None:
+        state = prop_ops.init_prop_state(
+            sys=sys,
+            ham_data=ham_data,
+            trial_ops=trial_ops,
+            trial_data=trial_data,
+            meas_ops=meas_ops,
+            params=params,
+        )
 
     def block(state_in):
         return block_fn(
@@ -73,6 +78,7 @@ def run_qmc_energy(
             params=params,
             ham_data=ham_data,
             trial_data=trial_data,
+            trial_ops=trial_ops,
             meas_ops=meas_ops,
             meas_ctx=meas_ctx,
             prop_ops=prop_ops,

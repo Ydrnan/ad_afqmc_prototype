@@ -12,11 +12,7 @@ from ..core.system import System
 @dataclass(frozen=True)
 class GhfTrial:
     """
-    Generalized Hartree–Fock (GHF) trial.
-
-    mo_coeff: shape (2*norb, nelec_total)
-      - rows: spin-orbitals [up-block; down-block]
-      - cols: occupied orbitals (nup+ndn)
+    Generalized HF trial.
     """
 
     mo_coeff: jax.Array  # (2*norb, nelec_total)
@@ -36,10 +32,10 @@ def _det(m: jax.Array) -> jax.Array:
 
 def get_rdm1(trial_data: GhfTrial) -> jax.Array:
     """
-    Return spin-block 1-RDM for use by AFQMC propagator code that expects
-    (2, norb, norb) for restricted-basis Hamiltonians.
+    Return spin-block 1RDM for use by AFQMC propagator code that expects
+    (2, norb, norb) for restricted basis Hamiltonians.
 
-    Note: This discards spin-offdiagonal blocks in a true GHF density matrix.
+    Note: This discards spin offdiagonal blocks in a true GHF density matrix.
     """
     c = trial_data.mo_coeff
     dm = c @ c.conj().T  # (2*norb, 2*norb)
@@ -50,10 +46,6 @@ def get_rdm1(trial_data: GhfTrial) -> jax.Array:
 
 
 def overlap_r(walker: jax.Array, trial_data: GhfTrial) -> jax.Array:
-    """
-    Restricted walker: walker shape (norb, nocc) with nocc=nup=ndn.
-    Overlap is det([C_up^H W, C_dn^H W]).
-    """
     norb = trial_data.norb
     cH = trial_data.mo_coeff.conj().T  # (ne, 2*norb)
     top = cH[:, :norb] @ walker
@@ -63,10 +55,6 @@ def overlap_r(walker: jax.Array, trial_data: GhfTrial) -> jax.Array:
 
 
 def overlap_u(walker: tuple[jax.Array, jax.Array], trial_data: GhfTrial) -> jax.Array:
-    """
-    Unrestricted walker: (wu, wd) with shapes (norb, nup), (norb, ndn).
-    Overlap is det([C_up^H W_up, C_dn^H W_dn]).
-    """
     wu, wd = walker
     norb = trial_data.norb
     cH = trial_data.mo_coeff.conj().T  # (ne, 2*norb)
@@ -77,12 +65,138 @@ def overlap_u(walker: tuple[jax.Array, jax.Array], trial_data: GhfTrial) -> jax.
 
 
 def overlap_g(walker: jax.Array, trial_data: GhfTrial) -> jax.Array:
-    """
-    Generalized walker: walker shape (2*norb, nelec_total).
-    Overlap is det(C^H W).
-    """
     m = trial_data.mo_coeff.conj().T @ walker  # (ne, ne)
     return _det(m)
+
+
+def _eff_idx(update_indices: jax.Array, norb: int) -> tuple[jax.Array, jax.Array]:
+    """
+    Returns effective indices in the combined (2*norb) basis.
+    """
+    spin_i, i = update_indices[0]
+    spin_j, j = update_indices[1]
+    i_eff = i + (spin_i == 1) * norb
+    j_eff = j + (spin_j == 1) * norb
+    return i_eff, j_eff
+
+
+def _ratio_full_rank2(
+    G: jax.Array, i: jax.Array, j: jax.Array, u0: jax.Array, u1: jax.Array
+) -> jax.Array:
+    """
+    Determinant-lemma overlap ratio for two diagonal updates
+    """
+    Gii = G[i, i]
+    Gjj = G[j, j]
+    Gij = G[i, j]
+    Gji = G[j, i]
+    return (1.0 + u0 * Gii) * (1.0 + u1 * Gjj) - (u0 * u1) * (Gij * Gji)
+
+
+def _update_full_rank2(
+    G: jax.Array,
+    i: jax.Array,
+    j: jax.Array,
+    u0: jax.Array,
+    u1: jax.Array,
+    *,
+    eps: float = 1.0e-8,
+    sanitize: bool = True,
+) -> jax.Array:
+    """
+    SMW update for the two diagonal update
+    """
+    r = _ratio_full_rank2(G, i, j, u0, u1)
+    r_safe = jnp.where(jnp.abs(r) < eps, jnp.asarray(1.0, dtype=r.dtype), r)
+
+    s_i = G[i].at[i].add(-1)
+    s_j = G[j].at[j].add(-1)
+
+    col_i = G[:, i]
+    col_j = G[:, j]
+
+    Gii = G[i, i]
+    Gjj = G[j, j]
+    Gij = G[i, j]
+    Gji = G[j, i]
+
+    term_i = u1 * (Gij * s_j - Gjj * s_i) - s_i
+    term_j = u0 * (Gji * s_i - Gii * s_j) - s_j
+
+    G_new = (
+        G
+        + (u0 / r_safe) * jnp.outer(col_i, term_i)
+        + (u1 / r_safe) * jnp.outer(col_j, term_j)
+    )
+
+    if sanitize:
+        z = jnp.asarray(0.0, dtype=G_new.dtype)
+        G_new = jnp.where(jnp.isfinite(G_new), G_new, z)
+
+    return G_new
+
+
+def calc_green_u(
+    walker: tuple[jax.Array, jax.Array], trial_data: GhfTrial
+) -> jax.Array:
+    """
+    Compute full G for unrestricted walker
+    """
+    wu, wd = walker
+    C = trial_data.mo_coeff  # (2*norb, nelec_tot)
+    norb = wu.shape[0]
+    nup = wu.shape[1]
+    Cu = C[:norb, :]  # (norb, nelec_tot)
+    Cd = C[norb:, :]  # (norb, nelec_tot)
+    O_left = Cu.conj().T @ wu  # (nelec_tot, nup)
+    O_right = Cd.conj().T @ wd  # (nelec_tot, ndn)
+    O = jnp.concatenate([O_left, O_right], axis=1)
+    X = jnp.linalg.solve(O, C.conj().T)  # (nelec_tot, 2*norb)
+    top = wu @ X[:nup, :]  # (norb, 2*norb)
+    bot = wd @ X[nup:, :]  # (norb, 2*norb)
+    G = jnp.concatenate([top, bot], axis=0).T  # (2*norb, 2*norb)
+    return G
+
+
+def calc_green_g(walker: jax.Array, trial_data: GhfTrial) -> jax.Array:
+    """
+    Compute full G for generalized walker
+    """
+    C = trial_data.mo_coeff  # (2*norb, nelec_tot)
+    overlap_mat = C.conj().T @ walker  # (nelec_tot, nelec_tot)
+    inv = jnp.linalg.inv(overlap_mat)
+    G = (walker @ inv @ C.conj().T).T  # (2*norb, 2*norb)
+    return G
+
+
+def calc_overlap_ratio(
+    greens: jax.Array,
+    update_indices: jax.Array,
+    update_constants: jax.Array,
+) -> jax.Array:
+    """
+    Overlap ratio.
+    update_indices: [[spin_i, i], [spin_j, j]]
+    update_constants: shape (2,) update constants (constants - 1)
+    """
+    norb = greens.shape[0] // 2
+    i_eff, j_eff = _eff_idx(update_indices, norb)
+    u0, u1 = update_constants[0], update_constants[1]
+    return _ratio_full_rank2(greens, i_eff, j_eff, u0, u1)
+
+
+def update_green(
+    greens: jax.Array,
+    update_indices: jax.Array,
+    update_constants: jax.Array,
+) -> jax.Array:
+    """
+    Update full G for unrestricted/generalized walker
+    """
+    norb = greens.shape[0] // 2
+    i_eff, j_eff = _eff_idx(update_indices, norb)
+    u0, u1 = update_constants[0], update_constants[1]
+    return _update_full_rank2(greens, i_eff, j_eff, u0, u1)
 
 
 def make_ghf_trial_ops(sys: System) -> TrialOps:
@@ -94,9 +208,21 @@ def make_ghf_trial_ops(sys: System) -> TrialOps:
         return TrialOps(overlap=overlap_r, get_rdm1=get_rdm1)
 
     if wk == "unrestricted":
-        return TrialOps(overlap=overlap_u, get_rdm1=get_rdm1)
+        return TrialOps(
+            overlap=overlap_u,
+            get_rdm1=get_rdm1,
+            calc_green=calc_green_u,
+            update_green=update_green,
+            calc_overlap_ratio=calc_overlap_ratio,
+        )
 
     if wk == "generalized":
-        return TrialOps(overlap=overlap_g, get_rdm1=get_rdm1)
+        return TrialOps(
+            overlap=overlap_g,
+            get_rdm1=get_rdm1,
+            calc_green=calc_green_g,
+            update_green=update_green,
+            calc_overlap_ratio=calc_overlap_ratio,
+        )
 
     raise ValueError(f"unknown walker_kind: {sys.walker_kind}")

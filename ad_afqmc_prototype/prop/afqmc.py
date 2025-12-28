@@ -17,8 +17,6 @@ from .types import PropOps, PropState, QmcParams
 def init_prop_state(
     *,
     sys: System,
-    n_walkers: int,
-    seed: int,
     ham_data: HamChol,
     trial_ops: TrialOps,
     trial_data: Any,
@@ -30,6 +28,8 @@ def init_prop_state(
     """
     Initialize AFQMC propagation state.
     """
+    n_walkers = params.n_walkers
+    seed = params.seed
     key = jax.random.PRNGKey(int(seed))
     weights = jnp.ones((n_walkers,))
 
@@ -148,6 +148,7 @@ def make_prop_ops(ham_data: HamChol, walker_kind: str) -> PropOps:
         params: QmcParams,
         ham_data: Any,
         trial_data: Any,
+        trial_ops: TrialOps,
         meas_ops: MeasOps,
         meas_ctx: Any,
         prop_ctx: Any,
