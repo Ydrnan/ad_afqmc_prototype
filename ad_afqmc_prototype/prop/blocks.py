@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +10,23 @@ from .. import walkers as wk
 from ..core.ops import MeasOps, TrialOps, k_energy
 from ..core.system import System
 from .types import PropOps, PropState, QmcParams
+
+
+class BlockFn(Protocol):
+    def __call__(
+        self,
+        state: PropState,
+        *,
+        sys: System,
+        params: QmcParams,
+        ham_data: Any,
+        trial_data: Any,
+        trial_ops: TrialOps,
+        meas_ops: MeasOps,
+        meas_ctx: Any,
+        prop_ops: PropOps,
+        prop_ctx: Any,
+    ) -> tuple[PropState, BlockObs]: ...
 
 
 class BlockObs(NamedTuple):

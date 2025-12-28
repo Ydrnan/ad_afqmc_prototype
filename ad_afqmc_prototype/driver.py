@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 from .core.ops import MeasOps, TrialOps
 from .core.system import System
-from .prop.blocks import BlockObs
+from .prop.blocks import BlockFn, BlockObs
 from .prop.types import PropOps, PropState, QmcParams
 from .stat_utils import blocking_analysis_ratio, reject_outliers
 
@@ -45,7 +45,7 @@ def run_qmc_energy(
     meas_ops: MeasOps,
     trial_ops: TrialOps,
     prop_ops: PropOps,
-    block_fn: Callable[..., tuple[PropState, BlockObs]],
+    block_fn: BlockFn,
     state: PropState | None = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
