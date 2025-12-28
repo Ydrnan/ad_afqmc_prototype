@@ -29,7 +29,7 @@ class CholAfqmcCtx:
             self.exp_h1_half,
             self.mf_shifts,
             self.h0_prop,
-        ), ()
+        ), None
 
     @classmethod
     def tree_unflatten(cls, aux, children):

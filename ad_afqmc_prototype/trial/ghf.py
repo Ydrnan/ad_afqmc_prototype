@@ -4,11 +4,13 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+from jax import tree_util
 
 from ..core.ops import TrialOps
 from ..core.system import System
 
 
+@tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class GhfTrial:
     """
@@ -24,6 +26,14 @@ class GhfTrial:
     @property
     def nelec_total(self) -> int:
         return int(self.mo_coeff.shape[1])
+
+    def tree_flatten(self):
+        return (self.mo_coeff,), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        (mo_coeff,) = children
+        return cls(mo_coeff=mo_coeff)
 
 
 def _det(m: jax.Array) -> jax.Array:

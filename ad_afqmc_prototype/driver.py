@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
+from jax import lax
 
 from .core.ops import MeasOps, TrialOps
 from .core.system import System
@@ -17,20 +18,47 @@ from .stat_utils import blocking_analysis_ratio, reject_outliers
 print = partial(print, flush=True)
 
 
-def make_run_blocks(block):  # block: state -> (state, obs)
+def make_run_blocks(
+    *,
+    block_fn: BlockFn,
+    sys: System,
+    params: QmcParams,
+    trial_ops: TrialOps,
+    meas_ops: MeasOps,
+    prop_ops: PropOps,
+) -> Callable:
     """
-    To keep things on GPU over multiple blocks.
+    Build a jitted run_blocks.
+    We keep ham_data, trial_data, meas_ctx, prop_ctx as arguments to
+    improve compilation, as these objects can be large.
     """
-
-    def one_block(state, _):
-        state, obs = block(state)
-        return state, (obs.scalars["energy"], obs.scalars["weight"])
 
     @partial(jax.jit, static_argnames=("n_blocks",))
     def run_blocks(
-        state0: PropState, *, n_blocks: int
-    ) -> tuple[PropState, jax.Array, jax.Array]:
-        stateN, (e, w) = jax.lax.scan(one_block, state0, xs=None, length=n_blocks)
+        state0,
+        *,
+        ham_data,
+        trial_data,
+        meas_ctx,
+        prop_ctx,
+        n_blocks: int,
+    ):
+        def one_block(state, _):
+            state, obs = block_fn(
+                state,
+                sys=sys,
+                params=params,
+                ham_data=ham_data,
+                trial_data=trial_data,
+                trial_ops=trial_ops,
+                meas_ops=meas_ops,
+                meas_ctx=meas_ctx,
+                prop_ops=prop_ops,
+                prop_ctx=prop_ctx,
+            )
+            return state, (obs.scalars["energy"], obs.scalars["weight"])
+
+        stateN, (e, w) = lax.scan(one_block, state0, xs=None, length=n_blocks)
         return stateN, e, w
 
     return run_blocks
@@ -71,21 +99,14 @@ def run_qmc_energy(
             params=params,
         )
 
-    def block(state_in):
-        return block_fn(
-            state_in,
-            sys=sys,
-            params=params,
-            ham_data=ham_data,
-            trial_data=trial_data,
-            trial_ops=trial_ops,
-            meas_ops=meas_ops,
-            meas_ctx=meas_ctx,
-            prop_ops=prop_ops,
-            prop_ctx=prop_ctx,
-        )
-
-    run_blocks = make_run_blocks(block)
+    run_blocks = make_run_blocks(
+        block_fn=block_fn,
+        sys=sys,
+        params=params,
+        trial_ops=trial_ops,
+        meas_ops=meas_ops,
+        prop_ops=prop_ops,
+    )
 
     t0 = time.perf_counter()
     t_mark = t0
@@ -115,7 +136,14 @@ def run_qmc_energy(
     chunk = print_every
     for start in range(0, params.n_eql_blocks, chunk):
         n = min(chunk, params.n_eql_blocks - start)
-        state, e_chunk, w_chunk = run_blocks(state, n_blocks=n)
+        state, e_chunk, w_chunk = run_blocks(
+            state,
+            ham_data=ham_data,
+            trial_data=trial_data,
+            meas_ctx=meas_ctx,
+            prop_ctx=prop_ctx,
+            n_blocks=n,
+        )
         block_e_eq.extend(e_chunk.tolist())
         block_w_eq.extend(w_chunk.tolist())
         w_chunk_avg = jnp.mean(w_chunk)
@@ -145,7 +173,14 @@ def run_qmc_energy(
     chunk = print_every
     for start in range(0, params.n_blocks, chunk):
         n = min(chunk, params.n_blocks - start)
-        state, e_chunk, w_chunk = run_blocks(state, n_blocks=n)
+        state, e_chunk, w_chunk = run_blocks(
+            state,
+            ham_data=ham_data,
+            trial_data=trial_data,
+            meas_ctx=meas_ctx,
+            prop_ctx=prop_ctx,
+            n_blocks=n,
+        )
         block_e_s.extend(e_chunk.tolist())
         block_w_s.extend(w_chunk.tolist())
         w_chunk_avg = jnp.mean(w_chunk)

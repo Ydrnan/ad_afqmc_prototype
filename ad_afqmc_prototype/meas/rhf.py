@@ -5,6 +5,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from jax import tree_util
 
 from ..core.ops import MeasOps, k_energy, k_force_bias
 from ..core.system import System
@@ -109,6 +110,7 @@ def force_bias_kernel_g(
     return meas_ctx.rot_chol_flat @ g.reshape(-1)
 
 
+@tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class RhfMeasCtx:
     # half-rotated:
@@ -116,12 +118,22 @@ class RhfMeasCtx:
     rot_chol: jax.Array  # (n_chol, nocc, norb)
     rot_chol_flat: jax.Array  # (n_chol, nocc*norb)
 
+    def tree_flatten(self):
+        return (self.rot_h1, self.rot_chol, self.rot_chol_flat), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        rot_h1, rot_chol, rot_chol_flat = children
+        return cls(
+            rot_h1=rot_h1,
+            rot_chol=rot_chol,
+            rot_chol_flat=rot_chol_flat,
+        )
+
 
 def build_meas_ctx(ham_data: HamChol, trial_data: RhfTrial) -> RhfMeasCtx:
     if ham_data.basis != "restricted":
-        raise ValueError(
-            "RHF MeasOps currently assumes HamChol.basis == 'restricted'."
-        )
+        raise ValueError("RHF MeasOps currently assumes HamChol.basis == 'restricted'.")
     cH = trial_data.mo_coeff.conj().T  # (nocc, norb)
     rot_h1 = cH @ ham_data.h1  # (nocc, norb)
     rot_chol = jnp.einsum("pi,gij->gpj", cH, ham_data.chol, optimize="optimal")

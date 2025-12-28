@@ -5,6 +5,7 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from jax import tree_util
 
 from ..core.ops import MeasOps, k_energy, k_force_bias
 from ..core.system import System
@@ -58,6 +59,7 @@ def _green_half_g(w: jax.Array, trial_data: GhfTrial) -> jax.Array:
     return (w @ inv).T  # (ne,2n)
 
 
+@tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class GhfCholMeasCtx:
     """
@@ -71,6 +73,18 @@ class GhfCholMeasCtx:
     rot_h1: jax.Array
     rot_chol: jax.Array
     rot_chol_flat: jax.Array
+
+    def tree_flatten(self):
+        return (self.rot_h1, self.rot_chol, self.rot_chol_flat), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        rot_h1, rot_chol, rot_chol_flat = children
+        return cls(
+            rot_h1=rot_h1,
+            rot_chol=rot_chol,
+            rot_chol_flat=rot_chol_flat,
+        )
 
 
 def build_meas_ctx_chol(ham_data: HamChol, trial_data: GhfTrial) -> GhfCholMeasCtx:
@@ -96,9 +110,7 @@ def build_meas_ctx_chol(ham_data: HamChol, trial_data: GhfTrial) -> GhfCholMeasC
         rot_chol = jax.vmap(lambda x: cH @ x, in_axes=0)(ham_data.chol)  # (nchol,ne,ns)
 
     rot_chol_flat = rot_chol.reshape(rot_chol.shape[0], -1)
-    return GhfCholMeasCtx(
-        rot_h1=rot_h1, rot_chol=rot_chol, rot_chol_flat=rot_chol_flat
-    )
+    return GhfCholMeasCtx(rot_h1=rot_h1, rot_chol=rot_chol, rot_chol_flat=rot_chol_flat)
 
 
 def force_bias_kernel_from_green(

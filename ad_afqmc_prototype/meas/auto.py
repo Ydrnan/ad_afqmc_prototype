@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, tree_util
 
 from ..core.ops import MeasOps, TrialOps, k_energy, k_force_bias
 from ..core.system import System
@@ -14,6 +14,7 @@ from ..core.typing import trial_data
 from ..ham.chol import HamChol
 
 
+@tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class AutoMeasCtx:
     """
@@ -22,6 +23,20 @@ class AutoMeasCtx:
 
     h1_eff: jax.Array  # (n,n) or (ns,ns)
     eps: jax.Array  # scalar
+
+    def tree_flatten(self):
+        return (
+            self.h1_eff,
+            self.eps,
+        ), None
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        h1_eff, eps = children
+        return cls(
+            h1_eff=h1_eff,
+            eps=eps,
+        )
 
 
 def _v0_from_chol(chol: jax.Array) -> jax.Array:
