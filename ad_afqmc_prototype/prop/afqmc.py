@@ -10,12 +10,7 @@ from ..core.ops import MeasOps, TrialOps, k_energy, k_force_bias
 from ..core.system import System
 from ..ham.chol import HamChol
 from ..walkers import init_walkers
-from .chol_afqmc_ops import (
-    _build_prop_ctx,
-    CholAfqmcCtx,
-    make_trotter_ops,
-    TrotterOps,
-)
+from .chol_afqmc_ops import CholAfqmcCtx, TrotterOps, _build_prop_ctx, make_trotter_ops
 from .types import PropOps, PropState, QmcParams
 
 
@@ -43,11 +38,9 @@ def init_prop_state(
             sys=sys, rdm1=trial_ops.get_rdm1(trial_data), n_walkers=n_walkers
         )
 
-    overlaps = wk.apply_chunked(
-        initial_walkers,
-        lambda w: meas_ops.overlap(w, trial_data),
-        n_chunks=params.n_chunks,
-    )
+    overlaps = wk.vmap_chunked(
+        meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
+    )(initial_walkers, trial_data)
 
     e_est = None
     if initial_e_estimate is not None:
@@ -56,11 +49,9 @@ def init_prop_state(
         meas_ctx = meas_ops.build_meas_ctx(ham_data, trial_data)
         e_kernel = meas_ops.require_kernel(k_energy)
         e_samples = jnp.real(
-            wk.apply_chunked(
-                initial_walkers,
-                lambda w: e_kernel(w, ham_data, meas_ctx, trial_data),
-                n_chunks=params.n_chunks,
-            )
+            wk.vmap_chunked(
+                e_kernel, n_chunks=params.n_chunks, in_axes=(0, None, None, None)
+            )(initial_walkers, ham_data, meas_ctx, trial_data)
         )
         e_est = jnp.mean(e_samples)
 
@@ -96,29 +87,22 @@ def afqmc_step(
     fields = jax.random.normal(subkey, (nw, trotter_ops.n_fields()))
 
     fb_kernel = meas_ops.require_kernel(k_force_bias)
-    force_bias = wk.apply_chunked(
-        state.walkers,
-        lambda w: fb_kernel(w, ham_data, meas_ctx, trial_data),
-        n_chunks=params.n_chunks,
-    )
-
+    force_bias = wk.vmap_chunked(
+        fb_kernel, n_chunks=params.n_chunks, in_axes=(0, None, None, None)
+    )(state.walkers, ham_data, meas_ctx, trial_data)
     field_shifts = -prop_ctx.sqrt_dt * (1.0j * force_bias - prop_ctx.mf_shifts)
     shifted_fields = fields - field_shifts
 
     shift_term = jnp.sum(shifted_fields * prop_ctx.mf_shifts, axis=1)
     fb_term = jnp.sum(fields * field_shifts - 0.5 * field_shifts * field_shifts, axis=1)
 
-    walkers_new = wk.apply_chunked_prop(
-        state.walkers,
-        shifted_fields,
-        lambda w, f: trotter_ops.apply_trotter(w, f, prop_ctx, params.n_exp_terms),
-        n_chunks=params.n_chunks,
-    )
+    walkers_new = wk.vmap_chunked(
+        trotter_ops.apply_trotter, n_chunks=params.n_chunks, in_axes=(0, 0, None, None)
+    )(state.walkers, shifted_fields, prop_ctx, params.n_exp_terms)
 
-    overlaps_new = wk.apply_chunked(
-        walkers_new, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
-    )
-
+    overlaps_new = wk.vmap_chunked(
+        meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
+    )(walkers_new, trial_data)
     ratio = overlaps_new / state.overlaps
     exponent = (
         -prop_ctx.sqrt_dt * shift_term

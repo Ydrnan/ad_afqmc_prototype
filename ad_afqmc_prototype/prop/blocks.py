@@ -48,17 +48,15 @@ def block(
     state, _ = lax.scan(_scan_step, state, xs=None, length=params.n_prop_steps)
 
     walkers_new = wk.orthonormalize(state.walkers, sys.walker_kind)
-    overlaps_new = wk.apply_chunked(
-        walkers_new, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
-    )
+    overlaps_new = wk.vmap_chunked(
+        meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
+    )(walkers_new, trial_data)
     state = state._replace(walkers=walkers_new, overlaps=overlaps_new)
 
     e_kernel = meas_ops.require_kernel(k_energy)
-    e_samples = wk.apply_chunked(
-        state.walkers,
-        lambda w: e_kernel(w, ham_data, meas_ctx, trial_data),
-        n_chunks=params.n_chunks,
-    )
+    e_samples = wk.vmap_chunked(
+        e_kernel, n_chunks=params.n_chunks, in_axes=(0, None, None, None)
+    )(state.walkers, ham_data, meas_ctx, trial_data)
     e_samples = jnp.real(e_samples)
 
     thresh = jnp.sqrt(2.0 / jnp.asarray(params.dt))
@@ -82,9 +80,9 @@ def block(
     w_sr, weights_sr = wk.stochastic_reconfiguration(
         state.walkers, state.weights, zeta, sys.walker_kind
     )
-    overlaps_sr = wk.apply_chunked(
-        w_sr, lambda w: meas_ops.overlap(w, trial_data), n_chunks=params.n_chunks
-    )
+    overlaps_sr = wk.vmap_chunked(
+        meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
+    )(w_sr, trial_data)
     state = state._replace(
         walkers=w_sr,
         weights=weights_sr,

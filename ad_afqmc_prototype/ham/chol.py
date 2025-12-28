@@ -33,22 +33,6 @@ class HamChol:
         if self.basis not in ("restricted", "generalized"):
             raise ValueError(f"unknown basis: {self.basis}")
 
-        if getattr(self.h1, "ndim", None) != 2:
-            raise ValueError(
-                f"h1 must be rank-2; got ndim={getattr(self.h1, 'ndim', None)}"
-            )
-        if self.h1.shape[0] != self.h1.shape[1]:
-            raise ValueError(f"h1 must be square; got {self.h1.shape}")
-
-        if getattr(self.chol, "ndim", None) != 3:
-            raise ValueError(
-                f"chol must be rank-3; got ndim={getattr(self.chol, 'ndim', None)}"
-            )
-        if self.chol.shape[1:] != self.h1.shape:
-            raise ValueError(
-                f"chol trailing dims must match h1; got chol {self.chol.shape}, h1 {self.h1.shape}"
-            )
-
     def tree_flatten(self):
         children = (self.h0, self.h1, self.chol)
         aux = self.basis

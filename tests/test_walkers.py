@@ -25,11 +25,10 @@ def test_n_walkers_array_and_tuple():
     assert wk.n_walkers((wu, wd)) == 10
 
 
-@pytest.mark.parametrize("n_chunks", [1, 2, 4])
+@pytest.mark.parametrize("n_chunks", [1, 3, 4])
 def test_apply_chunked_matches_vmap_array(n_chunks: int):
     key = jax.random.PRNGKey(1)
     nwalk, norb, nocc = 8, 6, 3
-    assert nwalk % n_chunks == 0
 
     w = _rand_complex(key, (nwalk, norb, nocc))
 
@@ -37,18 +36,17 @@ def test_apply_chunked_matches_vmap_array(n_chunks: int):
         return alpha * jnp.sum(jnp.abs(walker) ** 2)
 
     alpha = 0.3
-    out_chunked = wk.apply_chunked(w, fn_one, n_chunks, alpha)
+    out_chunked = wk.vmap_chunked(fn_one, n_chunks, in_axes=(0, None))(w, alpha)
     out_vmap = jax.vmap(lambda x: fn_one(x, alpha))(w)
 
     assert out_chunked.shape == out_vmap.shape
     assert jnp.allclose(out_chunked, out_vmap, rtol=1e-6, atol=1e-6)
 
 
-@pytest.mark.parametrize("n_chunks", [1, 2, 4])
+@pytest.mark.parametrize("n_chunks", [1, 3, 4])
 def test_apply_chunked_matches_vmap_unrestricted(n_chunks: int):
     key = jax.random.PRNGKey(2)
     nwalk, norb, nocc_u, nocc_d = 8, 6, 3, 2
-    assert nwalk % n_chunks == 0
 
     k1, k2 = jax.random.split(key)
     wu = _rand_complex(k1, (nwalk, norb, nocc_u))
@@ -59,18 +57,17 @@ def test_apply_chunked_matches_vmap_unrestricted(n_chunks: int):
         return beta * (jnp.sum(jnp.abs(wu_i) ** 2) + 2.0 * jnp.sum(jnp.abs(wd_i) ** 2))
 
     beta = -0.7
-    out_chunked = wk.apply_chunked((wu, wd), fn_one, n_chunks, beta)
+    out_chunked = wk.vmap_chunked(fn_one, n_chunks, in_axes=(0, None))((wu, wd), beta)
     out_vmap = jax.vmap(lambda a, b: fn_one((a, b), beta))(wu, wd)
 
     assert out_chunked.shape == out_vmap.shape
     assert jnp.allclose(out_chunked, out_vmap, rtol=1e-6, atol=1e-6)
 
 
-@pytest.mark.parametrize("n_chunks", [1, 2, 4])
+@pytest.mark.parametrize("n_chunks", [1, 3, 4])
 def test_apply_chunked_prop_matches_vmap_array(n_chunks: int):
     key = jax.random.PRNGKey(3)
     nwalk, norb, nocc, nfields = 8, 6, 3, 5
-    assert nwalk % n_chunks == 0
 
     k1, k2, k3 = jax.random.split(key, 3)
     w = _rand_complex(k1, (nwalk, norb, nocc))
@@ -80,18 +77,19 @@ def test_apply_chunked_prop_matches_vmap_array(n_chunks: int):
     def prop_one(walker, field_i, mat):
         return walker + (0.1 * field_i[0]) * (mat @ walker)
 
-    out_chunked = wk.apply_chunked_prop(w, fields, prop_one, n_chunks, mat)
+    out_chunked = wk.vmap_chunked(prop_one, n_chunks, in_axes=(0, 0, None))(
+        w, fields, mat
+    )
     out_vmap = jax.vmap(lambda wi, fi: prop_one(wi, fi, mat))(w, fields)
 
     assert out_chunked.shape == out_vmap.shape
     assert jnp.allclose(out_chunked, out_vmap, rtol=1e-6, atol=1e-6)
 
 
-@pytest.mark.parametrize("n_chunks", [1, 2, 4])
+@pytest.mark.parametrize("n_chunks", [1, 3, 4])
 def test_apply_chunked_prop_matches_vmap_unrestricted(n_chunks: int):
     key = jax.random.PRNGKey(4)
     nwalk, norb, nocc_u, nocc_d, nfields = 8, 6, 3, 2, 4
-    assert nwalk % n_chunks == 0
 
     k1, k2, k3, k4 = jax.random.split(key, 4)
     wu = _rand_complex(k1, (nwalk, norb, nocc_u))
@@ -104,7 +102,9 @@ def test_apply_chunked_prop_matches_vmap_unrestricted(n_chunks: int):
         s = 0.05 * field_i[1]
         return (wu_i + s * (mat @ wu_i), wd_i - s * (mat @ wd_i))
 
-    out_chunked = wk.apply_chunked_prop((wu, wd), fields, prop_one, n_chunks, mat)
+    out_chunked = wk.vmap_chunked(prop_one, n_chunks, in_axes=(0, 0, None))(
+        (wu, wd), fields, mat
+    )
     out_vmap_u, out_vmap_d = jax.vmap(
         lambda a, b, f: prop_one((a, b), f, mat), in_axes=(0, 0, 0)
     )(wu, wd, fields)

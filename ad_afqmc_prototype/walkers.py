@@ -81,89 +81,57 @@ def is_unrestricted(w: walkers) -> bool:
     return isinstance(w, tuple) and len(w) == 2
 
 
+def _batch_size0(x: Any) -> int:
+    leaf = jax.tree_util.tree_leaves(x)[0]
+    return int(leaf.shape[0])
+
+
 def n_walkers(w: walkers) -> int:
-    return w[0].shape[0] if is_unrestricted(w) else w.shape[0]
+    return _batch_size0(w)
 
 
-def _chunk_size(nw: int, n_chunks: int) -> int:
-    if nw % n_chunks != 0:
-        raise ValueError(f"n_walkers={nw} is not divisible into n_chunks={n_chunks}")
-    return nw // n_chunks
-
-
-def apply_chunked(
-    w: walkers,
-    apply_fn: Callable,
+def vmap_chunked(
+    fn: Callable[..., Any],
     n_chunks: int,
-    *args,
-    **kwargs,
-) -> jax.Array:
+    *,
+    in_axes: int | tuple[int | None, ...] = 0,
+):
     """
-    Apply a single walker kernel to all walkers in sequential chunks.
-    n_chunks > 1 can be used to reduce memory usage at the cost of speed,
-    as chunks are processed sequentially.
+    Memory friendly vmap: map over axis-0 in micro-batches using lax.map.
 
-    apply_fn(walker_i, *args, **kwargs) -> out_i
-
-    where walker_i can be either:
-      - jax.Array (restricted/generalized)
-      - tuple[jax.Array, jax.Array] (unrestricted)
+    Usage like vmap:
+        out = vmap_chunked(fn, n_chunks, in_axes=...)(*args, **kwargs)
     """
-    nw = n_walkers(w)
-    fn = lambda wi: apply_fn(wi, *args, **kwargs)
 
-    if n_chunks == 1:
-        return jax.vmap(fn, in_axes=0)(w)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        g = lambda *a: fn(*a, **kwargs)
 
-    cs = _chunk_size(nw, n_chunks)
-    w_c = jax.tree_util.tree_map(lambda x: x.reshape(n_chunks, cs, *x.shape[1:]), w)
+        if n_chunks == 1:
+            return jax.vmap(g, in_axes=in_axes)(*args)
 
-    def scanned_fun(carry, cw):
-        out = jax.vmap(fn, in_axes=0)(cw)
-        return carry, out
+        if not isinstance(in_axes, tuple):
+            in_axes_ = (in_axes,) * len(args)
+        else:
+            in_axes_ = in_axes
 
-    _, outs = lax.scan(scanned_fun, None, w_c)
+        mapped_pos = [i for i, ax in enumerate(in_axes_) if ax == 0]
+        if not mapped_pos:
+            return g(*args)
 
-    return jnp.reshape(outs, (nw, *outs.shape[2:]))
+        nw = _batch_size0(args[mapped_pos[0]])
+        batch_size = (nw + n_chunks - 1) // n_chunks
 
+        mapped_args = tuple(args[i] for i in mapped_pos)
 
-def apply_chunked_prop(
-    w: walkers,
-    fields: jax.Array,
-    prop_fn: Callable,
-    n_chunks: int,
-    *args,
-    **kwargs,
-) -> walkers:
-    """
-    Apply a single walker propagation kernel to all walkers in sequential chunks.
-    n_chunks > 1 can be used to reduce memory usage at the cost of speed,
-    as chunks are processed sequentially.
+        def f(xi):
+            full = list(args)
+            for j, i in enumerate(mapped_pos):
+                full[i] = xi[j]
+            return g(*full)
 
-    prop_fn(walker_i, fields_i, *args, **kwargs) -> walker_i
+        return lax.map(f, mapped_args, batch_size=batch_size)
 
-    where walker_i can be either:
-      - jax.Array (restricted/generalized)
-      - tuple[jax.Array, jax.Array] (unrestricted)
-    """
-    nw = n_walkers(w)
-    fn = lambda wi, fi: prop_fn(wi, fi, *args, **kwargs)
-
-    if n_chunks == 1:
-        return jax.vmap(fn, in_axes=(0, 0))(w, fields)
-
-    cs = _chunk_size(nw, n_chunks)
-    f_c = fields.reshape(n_chunks, cs, *fields.shape[1:])
-    w_c = jax.tree_util.tree_map(lambda x: x.reshape(n_chunks, cs, *x.shape[1:]), w)
-
-    def scanned_fun(carry, xs):
-        cw, cf = xs
-        out = jax.vmap(fn, in_axes=(0, 0))(cw, cf)
-        return carry, out
-
-    _, outs = lax.scan(scanned_fun, None, (w_c, f_c))
-
-    return jax.tree_util.tree_map(lambda x: x.reshape(nw, *x.shape[2:]), outs)
+    return wrapped
 
 
 def _qr(mat: jax.Array) -> tuple[jax.Array, jax.Array]:
