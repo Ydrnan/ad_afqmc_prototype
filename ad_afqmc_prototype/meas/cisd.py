@@ -14,10 +14,6 @@ from ..trial.cisd import overlap_r as cisd_overlap_r
 
 
 def _greens_restricted(walker: jax.Array, nocc: int) -> jax.Array:
-    """
-    green = (walker @ inv(walker_occ)).T, but computed via solve:
-      green has shape (nocc, norb)
-    """
     wocc = walker[:nocc, :]  # (nocc, nocc)
     return jnp.linalg.solve(wocc.T, walker.T)  # (nocc, norb)
 
@@ -36,7 +32,6 @@ def _greenp_from_green(green: jax.Array) -> jax.Array:
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class CisdMeasCtx:
-    # store the restricted-basis 1-body and chol in the same MO basis as ci1/ci2
     h1: jax.Array  # (norb, norb)
     chol: jax.Array  # (n_chol, norb, norb)
     rot_chol: jax.Array  # (n_chol, nocc, norb)   = chol[:, :nocc, :]
@@ -64,7 +59,6 @@ def build_meas_ctx(ham_data: HamChol, trial_data: CisdTrial) -> CisdMeasCtx:
 
     rot_chol = chol[:, :nocc, :]  # (n_chol, nocc, norb)
 
-    # old: ham_data["lci1"] = einsum("git,pt->gip", chol[:, :, nocc:], ci1)
     lci1 = jnp.einsum(
         "git,pt->gip",
         chol[:, :, nocc:],
@@ -88,7 +82,6 @@ def force_bias_kernel_r(
     chol = meas_ctx.chol
     rot_chol = meas_ctx.rot_chol
 
-    # lg[g] = sum_{p in occ, j} rot_chol[g,p,j] * green[p,j]
     lg = jnp.einsum("gpj,pj->g", rot_chol, green, optimize="optimal")
     fb_0 = 2.0 * lg
 
@@ -154,10 +147,10 @@ def energy_kernel_r(
     chol = meas_ctx.chol
     rot_chol = meas_ctx.rot_chol
 
-    # 0-body
+    # 0 body
     e0 = ham_data.h0
 
-    # ---- one-body ----
+    # 1 body
     hg = jnp.einsum("pj,pj->", h1[:nocc, :], green, optimize="optimal")
     e1_0 = 2.0 * hg
 
@@ -195,7 +188,7 @@ def energy_kernel_r(
 
     e1 = e1_0 + e1_1 + e1_2
 
-    # ---- two-body ----
+    # 2 body
     lg = jnp.einsum("gpj,pj->g", rot_chol, green, optimize="optimal")  # (n_chol,)
     lg1 = jnp.einsum(
         "gpj,qj->gpq", rot_chol, green, optimize="optimal"
