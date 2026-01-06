@@ -76,6 +76,7 @@ def run_qmc_energy(
     block_fn: BlockFn,
     state: PropState | None = None,
     meas_ctx: Any | None = None,
+    target_error: float | None = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
     equilibration blocks then sampling blocks.
@@ -163,6 +164,8 @@ def run_qmc_energy(
 
     # sampling
     print("\nSampling:\n")
+    if target_error is None:
+        target_error = 0.0
     print_every = params.n_blocks // 10 if params.n_blocks >= 10 else 0
     block_e_s = []
     block_w_s = []
@@ -206,6 +209,9 @@ def run_qmc_energy(
             f"{dt_per_block:9.3f}  "
             f"{elapsed:8.1f}"
         )
+        if se <= target_error and target_error > 0.0:
+            print(f"\nTarget error {target_error:.3e} reached at block {start + n}.")
+            break
     block_e_s = jnp.asarray(block_e_s)
     block_w_s = jnp.asarray(block_w_s)
 
