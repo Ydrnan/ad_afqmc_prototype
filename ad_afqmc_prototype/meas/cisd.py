@@ -16,32 +16,46 @@ from ..trial.cisd import slice_trial_level
 
 
 def make_level_pack(
-    *, ham_data: HamChol, trial_data: CisdTrial, level: LevelSpec
+    *,
+    ham_data: HamChol,
+    trial_data: CisdTrial,
+    level: LevelSpec,
+    orb_fullchol_ctx: CisdMeasCtx | None = None,
+    orb_fullchol_ham: HamChol | None = None,
 ) -> LevelPack:
-    """
-    Build a CISD measurement LevelPack for prefix truncations.
-    """
-    # orbital prefix: keep occ + first nvir_keep virtuals
     if level.nvir_keep is None:
-        trial_lvl = trial_data
+        trial_orb = trial_data
         norb_keep = None
     else:
-        trial_lvl = slice_trial_level(trial_data, level.nvir_keep)
+        trial_orb = slice_trial_level(trial_data, level.nvir_keep)
         norb_keep = int(trial_data.nocc) + int(level.nvir_keep)
 
-    ham_lvl = slice_ham_level(
-        ham_data,
-        norb_keep=norb_keep,
-        nchol_keep=level.nchol_keep,
-    )
+    if orb_fullchol_ham is None:
+        ham_orb_fullchol = slice_ham_level(
+            ham_data, norb_keep=norb_keep, nchol_keep=None
+        )
+    else:
+        ham_orb_fullchol = orb_fullchol_ham
 
-    meas_ctx_lvl = build_meas_ctx(ham_lvl, trial_lvl)
+    if orb_fullchol_ctx is None:
+        ctx_orb_fullchol = build_meas_ctx(ham_orb_fullchol, trial_orb)
+    else:
+        ctx_orb_fullchol = orb_fullchol_ctx
+
+    if level.nchol_keep is None:
+        ham_lvl = ham_orb_fullchol
+        ctx_lvl = ctx_orb_fullchol
+    else:
+        ham_lvl = slice_ham_level(
+            ham_orb_fullchol, norb_keep=None, nchol_keep=level.nchol_keep
+        )
+        ctx_lvl = slice_meas_ctx_chol(ctx_orb_fullchol, level.nchol_keep)
 
     return LevelPack(
         level=level,
         ham_data=ham_lvl,
-        trial_data=trial_lvl,
-        meas_ctx=meas_ctx_lvl,
+        trial_data=trial_orb,
+        meas_ctx=ctx_lvl,
         norb_keep=norb_keep,
     )
 
@@ -68,15 +82,26 @@ class CisdMeasCtx:
     h1: jax.Array  # (norb, norb)
     chol: jax.Array  # (n_chol, norb, norb)
     rot_chol: jax.Array  # (n_chol, nocc, norb)   = chol[:, :nocc, :]
-    # lci1: jax.Array  # (n_chol, norb, nocc)       = einsum(chol[:, :, nocc:], ci1)
+    lci1: jax.Array  # (n_chol, norb, nocc)       = einsum(chol[:, :, nocc:], ci1)
 
     def tree_flatten(self):
-        return (self.h1, self.chol, self.rot_chol), None
+        return (self.h1, self.chol, self.rot_chol, self.lci1), None
 
     @classmethod
     def tree_unflatten(cls, aux, children):
-        h1, chol, rot_chol = children
-        return cls(h1=h1, chol=chol, rot_chol=rot_chol)
+        h1, chol, rot_chol, lci1 = children
+        return cls(h1=h1, chol=chol, rot_chol=rot_chol, lci1=lci1)
+
+
+def slice_meas_ctx_chol(ctx: CisdMeasCtx, nchol_keep: int | None) -> CisdMeasCtx:
+    if nchol_keep is None:
+        return ctx
+    return CisdMeasCtx(
+        h1=ctx.h1,
+        chol=ctx.chol[:nchol_keep],
+        rot_chol=ctx.rot_chol[:nchol_keep],
+        lci1=ctx.lci1[:nchol_keep],
+    )
 
 
 def build_meas_ctx(ham_data: HamChol, trial_data: CisdTrial) -> CisdMeasCtx:
@@ -92,14 +117,14 @@ def build_meas_ctx(ham_data: HamChol, trial_data: CisdTrial) -> CisdMeasCtx:
 
     rot_chol = chol[:, :nocc, :]  # (n_chol, nocc, norb)
 
-    # lci1 = jnp.einsum(
-    #     "git,pt->gip",
-    #     chol[:, :, nocc:],
-    #     trial_data.ci1,
-    #     optimize="optimal",
-    # )  # (n_chol, norb, nocc)
+    lci1 = jnp.einsum(
+        "git,pt->gip",
+        chol[:, :, nocc:],
+        trial_data.ci1,
+        optimize="optimal",
+    )  # (n_chol, norb, nocc)
 
-    return CisdMeasCtx(h1=h1, chol=chol, rot_chol=rot_chol)  # , lci1=lci1)
+    return CisdMeasCtx(h1=h1, chol=chol, rot_chol=rot_chol, lci1=lci1)
 
 
 def force_bias_kernel_r(
