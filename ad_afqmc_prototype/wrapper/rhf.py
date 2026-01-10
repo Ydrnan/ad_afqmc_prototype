@@ -1,28 +1,26 @@
-import jax.numpy as jnp
 import numpy as np
-from pyscf import ao2mo
+import jax.numpy as jnp
 
-from . import driver, integrals
-from .core.system import System
-from .ham.chol import HamChol
-from .meas.rhf import make_rhf_meas_ops
-from .prop.afqmc import make_prop_ops
-from .prop.blocks import block
-from .prop.types import QmcParams
-from .trial.rhf import RhfTrial, make_rhf_trial_ops
-
+from .. import driver, config
+from ..prep import integrals
+from ..core.system import System
+from ..ham.chol import HamChol
+from ..meas.rhf import make_rhf_meas_ops
+from ..prop.afqmc import make_prop_ops
+from ..prop.blocks import block
+from ..prop.types import QmcParams
+from ..trial.rhf import RhfTrial, make_rhf_trial_ops
+from ..prep.pyscf_interface import get_integrals
 
 class Rhf:
     def __init__(self, mf):
+        config.setup_jax()
+
         mol = mf.mol
-        h0 = mf.energy_nuc()
-        h1 = np.array(mf.mo_coeff.T @ mf.get_hcore() @ mf.mo_coeff)
-        eri = np.array(ao2mo.kernel(mol, mf.mo_coeff))
-        eri = ao2mo.restore(4, eri, mol.nao)
-        chol = integrals.modified_cholesky(eri, max_error=1e-6)
+        h0, h1, chol = get_integrals(mf)
 
         sys = System(norb=mol.nao, nelec=mol.nelec, walker_kind="restricted")
-        ham_data = HamChol(h0=jnp.array(h0), h1=jnp.array(h1), chol=jnp.array(chol))
+        ham_data = HamChol(h0, h1, chol)
         self.trial_data = RhfTrial(jnp.eye(mol.nao, mol.nelectron // 2))
         self.trial_ops = make_rhf_trial_ops(sys=sys)
         self.meas_ops = make_rhf_meas_ops(sys=sys)
