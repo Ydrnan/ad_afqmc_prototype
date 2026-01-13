@@ -22,9 +22,6 @@ def test_build_prop_ctx_shapes_and_nfields():
     norb, n_fields = 5, 7
     ham = _make_small_ham(norb=norb, n_fields=n_fields, h0=0.0)
 
-    ops = make_trotter_ops(ham, walker_kind="restricted")
-    assert ops.n_fields() == n_fields
-
     dm = jnp.zeros((norb, norb))
     dt = 0.2
     ctx = _build_prop_ctx(ham, dm, dt)

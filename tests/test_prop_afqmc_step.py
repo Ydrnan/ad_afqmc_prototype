@@ -71,7 +71,7 @@ def test_weight_update_matches_h0_prop_and_pop_control_update():
         node_encounters=jnp.asarray(0),
     )
 
-    trotter_ops = make_trotter_ops(ham, sys.walker_kind)
+    trotter_ops = make_trotter_ops(ham.basis, sys.walker_kind)
     prop_ctx = _build_prop_ctx(ham, trial_data["rdm1"], params.dt)
     meas_ctx = meas_ops.build_meas_ctx(ham, trial_data)
     out = afqmc_step(
@@ -125,7 +125,7 @@ def test_step_matches_manual_walker_propagation_and_is_chunk_invariant():
         node_encounters=jnp.asarray(0),
     )
 
-    trotter_ops = make_trotter_ops(ham, sys.walker_kind)
+    trotter_ops = make_trotter_ops(ham.basis, sys.walker_kind)
     meas_ctx = meas_ops.build_meas_ctx(ham, trial_data)
     prop_ctx = _build_prop_ctx(ham, trial_data["rdm1"], params1.dt)
     out1 = afqmc_step(
@@ -142,7 +142,7 @@ def test_step_matches_manual_walker_propagation_and_is_chunk_invariant():
     key_next, subkey = jax.random.split(state.rng_key)
     fields = jax.random.normal(subkey, (nw, n_fields)).astype(jnp.complex64)
 
-    ops = make_trotter_ops(ham, "restricted")
+    ops = make_trotter_ops(ham.basis, "restricted")
     ctx = _build_prop_ctx(ham, trial_data["rdm1"], params1.dt)
 
     def trotter(w, f):

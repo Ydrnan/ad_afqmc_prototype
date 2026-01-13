@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 import jax
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, tree_util
+from jax.sharding import NamedSharding
 
 from .core.system import System
 from .core.typing import walkers
@@ -198,6 +199,25 @@ def multiply_constants(w: walkers, constants: Any) -> walkers:
     return w * c
 
 
+def SrFn(Protocol):
+    def __call__(
+        self,
+        w: walkers,
+        weights: jax.Array,
+        zeta: jax.Array | float,
+        walker_kind: str,
+    ) -> tuple[walkers, jax.Array]: ...
+
+
+def no_sr(
+    w: walkers,
+    weights: jax.Array,
+    zeta: jax.Array | float,
+    walker_kind: str,
+) -> tuple[walkers, jax.Array]:
+    return w, weights
+
+
 def _sr_indices(
     weights: jax.Array, zeta: jax.Array | float, n_walkers: int
 ) -> jax.Array:
@@ -213,6 +233,8 @@ def stochastic_reconfiguration(
     weights: jax.Array,
     zeta: jax.Array | float,
     walker_kind: str,
+    *,
+    data_sharding: NamedSharding | None = None,
 ) -> tuple[walkers, jax.Array]:
     wk = walker_kind.lower()
     n = w[0].shape[0] if wk == "unrestricted" else w.shape[0]
@@ -225,12 +247,24 @@ def stochastic_reconfiguration(
 
     if wk == "unrestricted":
         wu, wd = w
-        return (wu[idx], wd[idx]), weights_new
+        w_new = (wu[idx], wd[idx])
+    elif wk in ("restricted", "generalized"):
+        w_new = w[idx]
+    else:
+        raise ValueError(f"unknown walker_kind: {walker_kind}")
 
-    if wk in ("restricted", "generalized"):
-        return w[idx], weights_new
+    if data_sharding is not None:
+        if wk == "unrestricted":
+            wu_new, wd_new = w_new
+            wu_new = lax.with_sharding_constraint(wu_new, data_sharding)
+            wd_new = lax.with_sharding_constraint(wd_new, data_sharding)
+            w_new = (wu_new, wd_new)
+        else:
+            w_new = lax.with_sharding_constraint(w_new, data_sharding)
 
-    raise ValueError(f"unknown walker_kind: {walker_kind}")
+        weights_new = lax.with_sharding_constraint(weights_new, data_sharding)
+
+    return w_new, weights_new
 
 
 def slice_walkers(walkers: Any, walker_kind: str, norb_keep: int | None) -> Any:

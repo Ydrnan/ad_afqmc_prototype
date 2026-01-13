@@ -50,7 +50,6 @@ class CholAfqmcCtx:
 
 
 class TrotterOps(NamedTuple):
-    n_fields: Callable[[], int]
     apply_trotter: Callable[
         [Any, jax.Array, CholAfqmcCtx, int], Any
     ]  # (w, field, ctx, n_terms)->w
@@ -131,9 +130,10 @@ def _apply_one_body_half_unrestricted(
 
 
 def _apply_one_body_half_generalized_from_restricted(
-    w: jax.Array, prop_ctx: CholAfqmcCtx, *, norb: int
+    w: jax.Array, prop_ctx: CholAfqmcCtx
 ) -> jax.Array:
     e = prop_ctx.exp_h1_half
+    norb = w.shape[0] // 2
     top = e @ w[:norb, :]
     bot = e @ w[norb:, :]
     return jnp.vstack([top, bot])
@@ -176,10 +176,10 @@ def _apply_two_body_generalized_from_restricted(
     n_terms: int,
     *,
     make_vhs: Callable[[jax.Array, CholAfqmcCtx], jax.Array],
-    norb: int,
 ) -> jax.Array:
     vhs = make_vhs(field, prop_ctx).astype(w.dtype)
     a = (1.0j * prop_ctx.sqrt_dt).astype(w.dtype)
+    norb = w.shape[0] // 2
     top = taylor_expm_action(a, vhs, w[:norb, :], n_terms)
     bot = taylor_expm_action(a, vhs, w[norb:, :], n_terms)
     return jnp.vstack([top, bot])
@@ -218,32 +218,22 @@ def _apply_trotter_g_from_restricted(
     n_terms: int,
     *,
     make_vhs: Callable[[jax.Array, CholAfqmcCtx], jax.Array],
-    norb: int,
 ) -> jax.Array:
-    w1 = _apply_one_body_half_generalized_from_restricted(w, prop_ctx, norb=norb)
+    w1 = _apply_one_body_half_generalized_from_restricted(w, prop_ctx)
     w2 = _apply_two_body_generalized_from_restricted(
-        w1, field, prop_ctx, n_terms, make_vhs=make_vhs, norb=norb
+        w1, field, prop_ctx, n_terms, make_vhs=make_vhs
     )
-    return _apply_one_body_half_generalized_from_restricted(w2, prop_ctx, norb=norb)
+    return _apply_one_body_half_generalized_from_restricted(w2, prop_ctx)
 
 
 def make_trotter_ops(
-    ham_data: HamChol, walker_kind: str, mixed_precision: bool = False
+    ham_basis: str, walker_kind: str, mixed_precision: bool = False
 ) -> TrotterOps:
     walker_kind = walker_kind.lower()
-    nf = int(ham_data.chol.shape[0])
-
-    def n_fields_() -> int:
-        return nf
-
-    n = int(ham_data.chol.shape[1])
-    chol_flat = ham_data.chol.reshape(nf, -1)
 
     if mixed_precision:
-        vhs_real_dtype = jnp.float32
         vhs_complex_dtype = jnp.complex64
     else:
-        vhs_real_dtype = jnp.float64
         vhs_complex_dtype = jnp.complex128
 
     def make_vhs(field: jax.Array, ctx: CholAfqmcCtx) -> jax.Array:
@@ -253,35 +243,31 @@ def make_trotter_ops(
             n=ctx.norb,
         )
 
-    if ham_data.basis == "generalized" and walker_kind != "generalized":
-        raise ValueError(
-            "ham_data.basis='generalized' requires walker_kind='generalized'"
-        )
+    if ham_basis == "generalized" and walker_kind != "generalized":
+        raise ValueError("ham_basis='generalized' requires walker_kind='generalized'")
 
-    if ham_data.basis == "restricted":
+    if ham_basis == "restricted":
         if walker_kind == "restricted":
             apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_r(
                 w, f, ctx, n_terms, make_vhs=mv
             )
-            return TrotterOps(n_fields_, apply_trotter)
+            return TrotterOps(apply_trotter)
 
         if walker_kind == "unrestricted":
             apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_u(
                 w, f, ctx, n_terms, make_vhs=mv
             )
-            return TrotterOps(n_fields_, apply_trotter)
+            return TrotterOps(apply_trotter)
 
         if walker_kind == "generalized":
-            norb = int(ham_data.chol.shape[1])
-            apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs, norb=norb: _apply_trotter_g_from_restricted(
-                w, f, ctx, n_terms, make_vhs=mv, norb=norb
+            apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_g_from_restricted(
+                w, f, ctx, n_terms, make_vhs=mv
             )
-            return TrotterOps(n_fields_, apply_trotter)
-
+            return TrotterOps(apply_trotter)
         raise ValueError(f"unknown walker_kind: {walker_kind}")
 
     # ham_data.basis == "generalized" (so walker_kind must be generalized):
     apply_trotter = lambda w, f, ctx, n_terms, mv=make_vhs: _apply_trotter_r(
         w, f, ctx, n_terms, make_vhs=mv
     )
-    return TrotterOps(n_fields_, apply_trotter)
+    return TrotterOps(apply_trotter)

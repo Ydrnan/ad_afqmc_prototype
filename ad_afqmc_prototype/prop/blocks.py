@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, NamedTuple, Protocol
+from typing import Any, Callable, NamedTuple, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +10,7 @@ from .. import walkers as wk
 from ..core.levels import LevelPack
 from ..core.ops import MeasOps, TrialOps, k_energy
 from ..core.system import System
+from ..walkers import SrFn
 from .types import PropOps, PropState, QmcParams
 
 
@@ -27,6 +28,7 @@ class BlockFn(Protocol):
         meas_ctx: Any,
         prop_ops: PropOps,
         prop_ctx: Any,
+        sr_fun: SrFn = wk.stochastic_reconfiguration,
     ) -> tuple[PropState, BlockObs]: ...
 
 
@@ -46,6 +48,7 @@ def block(
     meas_ctx: Any,
     prop_ops: PropOps,
     prop_ctx: Any,
+    sr_fun: Callable = wk.stochastic_reconfiguration,
 ) -> tuple[PropState, BlockObs]:
     """
     propagation + measurement
@@ -96,9 +99,7 @@ def block(
 
     key, subkey = jax.random.split(state.rng_key)
     zeta = jax.random.uniform(subkey)
-    w_sr, weights_sr = wk.stochastic_reconfiguration(
-        state.walkers, state.weights, zeta, sys.walker_kind
-    )
+    w_sr, weights_sr = sr_fun(state.walkers, state.weights, zeta, sys.walker_kind)
     overlaps_sr = wk.vmap_chunked(
         meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
     )(w_sr, trial_data)
@@ -158,6 +159,7 @@ def block_mlmc(
     meas_ctx: MlmcMeasCtx,
     prop_ops: PropOps,
     prop_ctx: Any,
+    sr_fun: Callable = wk.stochastic_reconfiguration,
 ) -> tuple[PropState, BlockObs]:
     """
     propagation + MLMC measurement
@@ -284,9 +286,7 @@ def block_mlmc(
     )
 
     zeta = jax.random.uniform(key_sr)
-    w_sr, weights_sr = wk.stochastic_reconfiguration(
-        state.walkers, state.weights, zeta, sys.walker_kind
-    )
+    w_sr, weights_sr = sr_fun(state.walkers, state.weights, zeta, sys.walker_kind)
     overlaps_sr = wk.vmap_chunked(
         meas_ops.overlap, n_chunks=params.n_chunks, in_axes=(0, None)
     )(w_sr, trial_data)

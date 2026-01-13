@@ -8,12 +8,15 @@ from typing import Any, Callable
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jax.sharding import Mesh, NamedSharding
+from jax.sharding import PartitionSpec as P
 
 from .core.ops import MeasOps, TrialOps
 from .core.system import System
-from .prop.blocks import BlockFn, BlockObs
+from .prop.blocks import BlockFn
 from .prop.types import PropOps, PropState, QmcParams
 from .stat_utils import blocking_analysis_ratio, reject_outliers
+from .walkers import stochastic_reconfiguration
 
 print = partial(print, flush=True)
 
@@ -77,6 +80,7 @@ def run_qmc_energy(
     state: PropState | None = None,
     meas_ctx: Any | None = None,
     target_error: float | None = None,
+    mesh: Mesh | None = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
     """
     equilibration blocks then sampling blocks.
@@ -100,10 +104,18 @@ def run_qmc_energy(
             trial_data=trial_data,
             meas_ops=meas_ops,
             params=params,
+            mesh=mesh,
         )
 
+    if mesh is None or mesh.size == 1:
+        block_fn_sr = block_fn
+    else:
+        data_sh = NamedSharding(mesh, P("data"))
+        sr_sharded = partial(stochastic_reconfiguration, data_sharding=data_sh)
+        block_fn_sr = partial(block_fn, sr_fn=sr_sharded)
+
     run_blocks = make_run_blocks(
-        block_fn=block_fn,
+        block_fn=block_fn_sr,
         sys=sys,
         params=params,
         trial_ops=trial_ops,

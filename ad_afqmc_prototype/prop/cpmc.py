@@ -5,11 +5,13 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 from jax import lax
+from jax.sharding import Mesh
 
 from .. import walkers as wk
 from ..core.ops import MeasOps, TrialOps, k_energy, require_cpmc_trial_ops
 from ..core.system import System
 from ..ham.hubbard import HamHubbard
+from ..sharding import shard_prop_state
 from ..walkers import init_walkers
 from .hubbard_cpmc_ops import (
     HubbardCpmcCtx,
@@ -31,6 +33,7 @@ def init_prop_state(
     initial_walkers: Any | None = None,
     initial_e_estimate: jax.Array | None = None,
     rdm1: jax.Array | None = None,
+    mesh: Mesh | None = None,
 ) -> PropState:
     """
     Initialize CPMC propagation state.
@@ -70,7 +73,7 @@ def init_prop_state(
 
     node_encounters = jnp.asarray(0)
 
-    return PropState(
+    state = PropState(
         walkers=initial_walkers,
         weights=weights,
         overlaps=overlaps,
@@ -79,6 +82,7 @@ def init_prop_state(
         e_estimate=e_est,
         node_encounters=node_encounters,
     )
+    return shard_prop_state(state, mesh)
 
 
 def cpmc_step(

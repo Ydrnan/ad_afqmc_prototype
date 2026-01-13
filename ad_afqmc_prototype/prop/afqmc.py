@@ -4,11 +4,13 @@ from typing import Any
 
 import jax
 import jax.numpy as jnp
+from jax.sharding import Mesh
 
 from .. import walkers as wk
 from ..core.ops import MeasOps, TrialOps, k_energy, k_force_bias
 from ..core.system import System
 from ..ham.chol import HamChol
+from ..sharding import shard_prop_state
 from ..walkers import init_walkers
 from .chol_afqmc_ops import CholAfqmcCtx, TrotterOps, _build_prop_ctx, make_trotter_ops
 from .types import PropOps, PropState, QmcParams
@@ -25,6 +27,7 @@ def init_prop_state(
     initial_walkers: Any | None = None,
     initial_e_estimate: jax.Array | None = None,
     rdm1: jax.Array | None = None,
+    mesh: Mesh | None = None,
 ) -> PropState:
     """
     Initialize AFQMC propagation state.
@@ -61,7 +64,7 @@ def init_prop_state(
 
     node_encounters = jnp.asarray(0)
 
-    return PropState(
+    state = PropState(
         walkers=initial_walkers,
         weights=weights,
         overlaps=overlaps,
@@ -70,6 +73,7 @@ def init_prop_state(
         e_estimate=e_est,
         node_encounters=node_encounters,
     )
+    return shard_prop_state(state, mesh)
 
 
 def afqmc_step(
@@ -86,7 +90,7 @@ def afqmc_step(
 
     key, subkey = jax.random.split(state.rng_key)
     nw = wk.n_walkers(state.walkers)
-    fields = jax.random.normal(subkey, (nw, trotter_ops.n_fields()))
+    fields = jax.random.normal(subkey, (nw, ham_data.chol.shape[0]))
 
     fb_kernel = meas_ops.require_kernel(k_force_bias)
     force_bias = wk.vmap_chunked(
@@ -141,11 +145,9 @@ def afqmc_step(
     )
 
 
-def make_prop_ops(
-    ham_data: HamChol, walker_kind: str, mixed_precision=False
-) -> PropOps:
+def make_prop_ops(ham_basis: str, walker_kind: str, mixed_precision=False) -> PropOps:
     trotter_ops = make_trotter_ops(
-        ham_data, walker_kind, mixed_precision=mixed_precision
+        ham_basis, walker_kind, mixed_precision=mixed_precision
     )
 
     def step(

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, NamedTuple, Protocol
 
 import jax
+from jax.sharding import Mesh
 
 from ..core.ops import MeasOps, TrialOps
 from ..core.system import System
@@ -65,6 +66,7 @@ class InitPropState(Protocol):
         initial_walkers: Any | None = None,
         initial_e_estimate: jax.Array | None = None,
         rdm1: jax.Array | None = None,
+        mesh: Mesh | None = None,
     ) -> PropState: ...
 
 
