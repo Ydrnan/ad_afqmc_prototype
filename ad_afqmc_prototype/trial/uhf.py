@@ -59,13 +59,14 @@ def overlap_u(walker: tuple[jax.Array, jax.Array], trial_data: UhfTrial) -> jax.
     return _det(cu) * _det(cd)
 
 
-#def overlap_g(walker: jax.Array, trial_data: UhfTrial) -> jax.Array:
-#    norb = trial_data.norb
-#    cH = trial_data.mo_coeff.conj().T  # (nocc, norb)
-#    top = cH @ walker[:norb, :]  # (nocc, 2*nocc)
-#    bot = cH @ walker[norb:, :]  # (nocc, 2*nocc)
-#    m = jnp.vstack([top, bot])  # (2*nocc, 2*nocc)
-#    return _det(m)
+def overlap_g(walker: jax.Array, trial_data: UhfTrial) -> jax.Array:
+    norb = trial_data.norb
+    caH = trial_data.mo_coeff_a.conj().T  # (nocc[0], norb)
+    cbH = trial_data.mo_coeff_b.conj().T  # (nocc[1], norb)
+    top = caH @ walker[:norb, :]  # (nocc, 2*nocc)
+    bot = cbH @ walker[norb:, :]  # (nocc, 2*nocc)
+    m = jnp.vstack([top, bot])  # (2*nocc, 2*nocc)
+    return _det(m)
 
 
 def make_uhf_trial_ops(sys: System) -> TrialOps:
@@ -78,7 +79,6 @@ def make_uhf_trial_ops(sys: System) -> TrialOps:
         return TrialOps(overlap=overlap_u, get_rdm1=get_rdm1)
 
     if wk == "generalized":
-        raise NotImplementedError
         return TrialOps(overlap=overlap_g, get_rdm1=get_rdm1)
 
     raise ValueError(f"unknown walker_kind: {sys.walker_kind}")

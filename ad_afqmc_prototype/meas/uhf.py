@@ -10,7 +10,7 @@ from jax import tree_util
 from ..core.ops import MeasOps, k_energy, k_force_bias
 from ..core.system import System
 from ..ham.chol import HamChol
-from ..trial.uhf import UhfTrial, overlap_u
+from ..trial.uhf import UhfTrial, overlap_u, overlap_g
 
 
 def _half_green_from_overlap_matrix(w: jax.Array, ovlp_mat: jax.Array) -> jax.Array:
@@ -28,8 +28,8 @@ def force_bias_kernel_u(
     wu, wd = walker
     mu = trial_data.mo_coeff_a.conj().T @ wu
     md = trial_data.mo_coeff_b.conj().T @ wd
-    gu = _half_green_from_overlap_matrix(wu, mu)  # (nocc_a, norb)
-    gd = _half_green_from_overlap_matrix(wd, md)  # (nocc_b, norb)
+    gu = _half_green_from_overlap_matrix(wu, mu)  # (nocc[0], norb)
+    gd = _half_green_from_overlap_matrix(wd, md)  # (nocc[1], norb)
 
     fb_u = jnp.einsum(
         "gij,ij->g", meas_ctx.rot_chol_a, gu, optimize="optimal"
@@ -92,13 +92,13 @@ def energy_kernel_g(
     norb = trial_data.norb
     na, nb = trial_data.nocc
 
-    gfA, gfB = g[:na, :norb], g[na:, norb:]
-    gfAB, gfBA = g[:na, norb:], g[na:, :norb]
+    g_aa, g_bb = g[:na, :norb], g[na:, norb:]
+    g_ab, g_ba = g[:na, norb:], g[na:, :norb]
 
-    e1 = jnp.sum(gfA * meas_ctx.rot_h1_a) + jnp.sum(gfB * meas_ctx.rot_h1_b)
+    e1 = jnp.sum(g_aa * meas_ctx.rot_h1_a) + jnp.sum(g_bb * meas_ctx.rot_h1_b)
 
-    f_up = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_a, gfA.T, optimize="optimal")
-    f_dn = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_b, gfB.T, optimize="optimal")
+    f_up = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_a, g_aa.T, optimize="optimal")
+    f_dn = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_b, g_bb.T, optimize="optimal")
     c_up = jax.vmap(jnp.trace)(f_up)
     c_dn = jax.vmap(jnp.trace)(f_dn)
     J = jnp.sum(c_up * c_up) + jnp.sum(c_dn * c_dn) + 2.0 * jnp.sum(c_up * c_dn)
@@ -107,8 +107,8 @@ def energy_kernel_g(
         jax.vmap(lambda x: x * x.T)(f_dn)
     )
 
-    f_ab = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_a, gfBA.T, optimize="optimal")
-    f_ba = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_b, gfAB.T, optimize="optimal")
+    f_ab = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_a, g_ba.T, optimize="optimal")
+    f_ba = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_b, g_ab.T, optimize="optimal")
     K += 2.0 * jnp.sum(jax.vmap(lambda x, y: x * y.T)(f_ab, f_ba))
 
     return e0 + e1 + (J - K) / 2.0
@@ -187,6 +187,11 @@ def make_uhf_meas_ops(sys: System) -> MeasOps:
         )
 
     if wk == "generalized":
-        raise NotImplementedError
+        return MeasOps(
+            overlap=overlap_g,
+            build_meas_ctx=build_meas_ctx,
+            kernels={k_energy: energy_kernel_g},
+        )
+        #raise NotImplementedError
 
     raise ValueError(f"unknown walker_kind: {sys.walker_kind}")
