@@ -3,6 +3,7 @@ from ad_afqmc_prototype import config
 config.setup_jax()
 
 import jax
+from jax import lax
 import jax.numpy as jnp
 import pytest
 
@@ -10,7 +11,7 @@ from ad_afqmc_prototype.core.ops import k_energy, k_force_bias
 from ad_afqmc_prototype.core.system import System
 from ad_afqmc_prototype.ham.chol import HamChol
 from ad_afqmc_prototype.meas.auto import make_auto_meas_ops
-from ad_afqmc_prototype.meas.uhf import make_uhf_meas_ops
+from ad_afqmc_prototype.meas.uhf import make_uhf_meas_ops, energy_kernel_u, energy_kernel_r, energy_kernel_g, build_meas_ctx
 from ad_afqmc_prototype.trial.uhf import UhfTrial, make_uhf_trial_ops
 from ad_afqmc_prototype import testing
 
@@ -110,6 +111,84 @@ def test_auto_energy_matches_manual_uhf(walker_kind, norb, nup, ndn, n_chol):
         ea = e_auto(wi, ham, ctx_auto, trial)
 
         assert jnp.allclose(ea, em, rtol=5e-6, atol=5e-7), (ea, em)
+
+def test_energy_equal_when_wu_eq_wd():
+    norb = 6
+    nup, ndn = 2, 2
+    n_chol = 8
+    walker_kind = "restricted"
+    
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing._make_common_manual(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_uhf_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_uhf_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing._make_walkers(jax.random.fold_in(k_w, i), sys)
+        er = energy_kernel_r(wi, ham, ctx, trial)
+        eu = energy_kernel_u((wi, wi), ham, ctx, trial)
+
+        assert jnp.allclose(er, eu, atol=1e-12), (er, eu)
+
+def test_energy_equal_when_wg_eq_wu():
+    norb = 6
+    nup, ndn = 2, 1
+    n_chol = 8
+    walker_kind = "unrestricted"
+    
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing._make_common_manual(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_uhf_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_uhf_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing._make_walkers(jax.random.fold_in(k_w, i), sys)
+        eu = energy_kernel_u(wi, ham, ctx, trial)
+        wa, wb = wi
+        wi = jnp.zeros((2*norb, nup+ndn), dtype=wa.dtype)
+        wi = lax.dynamic_update_slice(wi, wa, (0,0))
+        wi = lax.dynamic_update_slice(wi, wb, (norb,nup))
+        eg = energy_kernel_g(wi, ham, ctx, trial)
+
+        assert jnp.allclose(eu, eg, atol=1e-12), (eu, eg)
 
 if __name__ == "__main__":
     pytest.main([__file__])

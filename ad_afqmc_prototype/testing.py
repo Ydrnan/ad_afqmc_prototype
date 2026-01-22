@@ -116,3 +116,25 @@ def _make_common_auto(
     ctx_auto = meas_auto.build_meas_ctx(ham, trial)
 
     return sys, ham, trial, meas_manual, ctx_manual, meas_auto, ctx_auto
+
+def _make_common_manual(
+    key,
+    walker_kind,
+    norb:int,
+    nelec: tuple[int, int],
+    n_chol: int,
+    *,
+    make_trial_fn,
+    make_trial_fn_kwargs=(),
+    make_trial_ops_fn,
+    build_meas_ctx_fn,
+    ):
+    sys = System(norb=norb, nelec=nelec, walker_kind=walker_kind)
+
+    k_ham, k_trial = jax.random.split(key, 2)
+
+    ham = _make_random_ham_chol(k_ham, norb=norb, n_chol=n_chol)
+    trial = make_trial_fn(k_trial, **make_trial_fn_kwargs)
+    ctx = build_meas_ctx_fn(ham, trial)
+
+    return sys, ham, trial, ctx
