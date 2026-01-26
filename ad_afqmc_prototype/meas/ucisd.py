@@ -532,7 +532,7 @@ def build_meas_ctx(ham_data: HamChol, trial_data: UcisdTrial) -> UcisdMeasCtx:
         trial_data.c1b,
         optimize="optimal",
     )
-    return UCisdMeasCtx(
+    return UcisdMeasCtx(
         h1_b=h1_b,
         chol_b=chol_b,
         rot_h1_a=rot_h1_a,
