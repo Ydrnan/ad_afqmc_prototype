@@ -29,7 +29,7 @@ class UcisdMeasCfg:
 
 @tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class UCisdMeasCtx:
+class UcisdMeasCtx:
     h1_b: jax.Array  # (norb, norb)
     chol_b: jax.Array  # (n_chol, norb, norb)
 
