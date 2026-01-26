@@ -40,11 +40,11 @@ def _make_ucisd_trial(
     n_vb = norb - n_ob
     k1, k2, k3, k4, k5, k6 = jax.random.split(key, 6)
 
-    c1a = scale_ci1 * jax.random.normal(k1, (n_oa, n_va), dtype=dtype) * 0.0
-    c1b = scale_ci1 * jax.random.normal(k2, (n_ob, n_vb), dtype=dtype) * 0.0
-    c2aa = scale_ci2 * jax.random.normal(k3, (n_oa, n_va, n_oa, n_va), dtype=dtype) * 0.0
-    c2ab = scale_ci2 * jax.random.normal(k4, (n_oa, n_va, n_ob, n_vb), dtype=dtype) * 0.0
-    c2bb = scale_ci2 * jax.random.normal(k5, (n_ob, n_vb, n_ob, n_vb), dtype=dtype) * 0.0
+    c1a = scale_ci1 * jax.random.normal(k1, (n_oa, n_va), dtype=dtype)
+    c1b = scale_ci1 * jax.random.normal(k2, (n_ob, n_vb), dtype=dtype)
+    c2aa = scale_ci2 * jax.random.normal(k3, (n_oa, n_va, n_oa, n_va), dtype=dtype)
+    c2ab = scale_ci2 * jax.random.normal(k4, (n_oa, n_va, n_ob, n_vb), dtype=dtype)
+    c2bb = scale_ci2 * jax.random.normal(k5, (n_ob, n_vb, n_ob, n_vb), dtype=dtype)
     c2aa = 0.5 * (c2aa + c2aa.transpose(2, 3, 0, 1))
     c2bb = 0.5 * (c2bb + c2bb.transpose(2, 3, 0, 1))
 
