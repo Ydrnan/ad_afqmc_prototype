@@ -106,7 +106,7 @@ def overlap_u(walker: tuple[jax.Array, jax.Array], trial_data: UcisdTrial) -> ja
     c2bb = trial_data.c2bb
     c_b = trial_data.mo_coeff_b
 
-    wb = c_b.T.dot(wb[:, :n_ob])
+    wb = c_b.T @ wb[:, :n_ob]
     woa = wa[:n_oa, :]  # (n_oa, n_oa)
     wob = wb[:n_ob, :]  # (n_ob, n_ob)
 
@@ -141,16 +141,16 @@ def overlap_g(walker: jax.Array, trial_data: UcisdTrial) -> jax.Array:
     ci2AB = c2ab
     nelec = (n_oa, n_ob)
 
-    walker_ = jnp.vstack(
+    w = jnp.vstack(
         [
             walker[: norb],
-            c_b.T.dot(walker[norb :, :]),
+            c_b.T @ walker[norb :, :],
         ]
     )  # put walker_dn in the basis of alpha reference
 
     Atrial, Btrial = (
-        c_a[:, :noccA],
-        c_b[:, :noccB],
+        c_a[:, :n_oa],
+        c_b[:, :n_ob],
     )
     bra = jnp.block([[Atrial, 0 * Btrial], [0 * Atrial, Btrial]])
     o0 = jnp.linalg.det(bra.T.conj() @ walker)
@@ -165,30 +165,26 @@ def overlap_g(walker: jax.Array, trial_data: UcisdTrial) -> jax.Array:
         ]
     )
 
-    gf = (walker_ @ jnp.linalg.inv(bra.T.conj() @ walker_) @ bra.T.conj()).T
+    g = (w @ jnp.linalg.inv(bra.T.conj() @ w) @ bra.T.conj()).T
 
-    gfA, gfB = (
-        gf[: nelec[0], : norb],
-        gf[norb : norb + nelec[1], norb :],
-    )
-    gfAB, gfBA = (
-        gf[: nelec[0], norb :],
-        gf[norb : norb + nelec[1], : norb],
-    )
+    g_aa = g[:n_oa, n_oa:norb]
+    g_bb = g[norb:norb + n_ob, norb + n_ob:]
+    g_ab = g[:n_oa, norb + n_ob:]
+    g_ba = g[norb:norb + n_ob, n_oa:norb]
 
-    o1 = jnp.einsum("ia,ia", ci1A, gfA[:, noccA:]) + jnp.einsum(
-        "ia,ia", ci1B, gfB[:, noccB:]
+    o1 = jnp.einsum("ia,ia", ci1A, g_aa) + jnp.einsum(
+        "ia,ia", ci1B, g_bb,
     )
 
     # AA
-    o2 = jnp.einsum("iajb, ia, jb", ci2AA, gfA[:, noccA:], gfA[:, noccA:])
+    o2 = jnp.einsum("iajb, ia, jb", ci2AA, g_aa, g_aa)
 
     # BB
-    o2 += jnp.einsum("iajb, ia, jb", ci2BB, gfB[:, noccB:], gfB[:, noccB:])
+    o2 += jnp.einsum("iajb, ia, jb", ci2BB, g_bb, g_bb)
 
     # AB
-    o2 += 2.0 * jnp.einsum("iajb, ia, jb", ci2AB, gfA[:, noccA:], gfB[:, noccB:])
-    o2 -= 2.0 * jnp.einsum("iajb, ib, ja", ci2AB, gfAB[:, noccB:], gfBA[:, noccA:])
+    o2 += 2.0 * jnp.einsum("iajb, ia, jb", ci2AB, g_aa, g_bb)
+    o2 -= 2.0 * jnp.einsum("iajb, ib, ja", ci2AB, g_ab, g_ba)
 
     return (1.0 + o1 + 0.5 * o2) * o0
 

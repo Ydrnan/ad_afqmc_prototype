@@ -108,7 +108,7 @@ def force_bias_kernel_u(
     ci2_bb = trial_data.c2bb
     c_b = trial_data.mo_coeff_b
 
-    wb = c_b.T.dot(wb[:, :n_ob])
+    wb = c_b.T @ wb[:, :n_ob]
     woa = wa[:n_oa, :]  # (n_oa, n_oa)
     wob = wb[:n_ob, :]  # (n_ob, n_ob)
 
@@ -220,7 +220,7 @@ def energy_kernel_u(
     ci2_bb = trial_data.c2bb
     c_b = trial_data.mo_coeff_b
 
-    wb = c_b.T.dot(wb[:, :n_ob])
+    wb = c_b.T @ wb[:, :n_ob]
     woa = wa[:n_oa, :]  # (n_oa, n_oa)
     wob = wb[:n_ob, :]  # (n_ob, n_ob)
 
