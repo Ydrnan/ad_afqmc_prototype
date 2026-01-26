@@ -220,6 +220,8 @@ def energy_kernel_u(
     ci2_bb = trial_data.c2bb
     c_b = trial_data.mo_coeff_b
 
+    cfg = meas_ctx.cfg
+
     wb = c_b.T @ wb[:, :n_ob]
     woa = wa[:n_oa, :]  # (n_oa, n_oa)
     wob = wb[:n_ob, :]  # (n_ob, n_ob)
@@ -272,28 +274,28 @@ def energy_kernel_u(
     ci2g_a = (
         jnp.einsum(
             "ptqu,pt->qu",
-            ci2_aa.astype(meas_ctx.cfg.mixed_real_dtype),
-            green_occ_a.astype(meas_ctx.cfg.mixed_complex_dtype),
+            ci2_aa.astype(cfg.mixed_real_dtype),
+            green_occ_a.astype(cfg.mixed_complex_dtype),
         )
         / 4
     )
     ci2g_b = (
         jnp.einsum(
             "ptqu,pt->qu",
-            ci2_bb.astype(meas_ctx.cfg.mixed_real_dtype),
-            green_occ_b.astype(meas_ctx.cfg.mixed_complex_dtype),
+            ci2_bb.astype(cfg.mixed_real_dtype),
+            green_occ_b.astype(cfg.mixed_complex_dtype),
         )
         / 4
     )
     ci2g_ab_a = jnp.einsum(
         "ptqu,qu->pt",
-        ci2_ab.astype(meas_ctx.cfg.mixed_real_dtype),
-        green_occ_b.astype(meas_ctx.cfg.mixed_complex_dtype),
+        ci2_ab.astype(cfg.mixed_real_dtype),
+        green_occ_b.astype(cfg.mixed_complex_dtype),
     )
     ci2g_ab_b = jnp.einsum(
         "ptqu,pt->qu",
-        ci2_ab.astype(meas_ctx.cfg.mixed_real_dtype),
-        green_occ_a.astype(meas_ctx.cfg.mixed_complex_dtype),
+        ci2_ab.astype(cfg.mixed_real_dtype),
+        green_occ_a.astype(cfg.mixed_complex_dtype),
     )
     gci2g_a = jnp.einsum("qu,qu->", ci2g_a, green_occ_a, optimize="optimal")
     gci2g_b = jnp.einsum("qu,qu->", ci2g_b, green_occ_b, optimize="optimal")
@@ -335,14 +337,14 @@ def energy_kernel_u(
     e2_1_1 = e2_0 * ci1g
     lci1g_a = jnp.einsum(
         "gij,ij->g",
-        chol_a.astype(meas_ctx.cfg.mixed_real_dtype),
-        ci1_green_a.astype(meas_ctx.cfg.mixed_complex_dtype),
+        chol_a.astype(cfg.mixed_real_dtype),
+        ci1_green_a.astype(cfg.mixed_complex_dtype),
         optimize="optimal",
     )
     lci1g_b = jnp.einsum(
         "gij,ij->g",
-        chol_b.astype(meas_ctx.cfg.mixed_real_dtype),
-        ci1_green_b.astype(meas_ctx.cfg.mixed_complex_dtype),
+        chol_b.astype(cfg.mixed_real_dtype),
+        ci1_green_b.astype(cfg.mixed_complex_dtype),
         optimize="optimal",
     )
     e2_1_2 = -((lci1g_a + lci1g_b) @ (lg_a + lg_b))
@@ -367,21 +369,21 @@ def energy_kernel_u(
     e2_2_1 = e2_0 * gci2g
     lci2g_a = jnp.einsum(
         "gij,ij->g",
-        chol_a.astype(meas_ctx.cfg.mixed_real_dtype),
-        8 * ci2_green_a.astype(meas_ctx.cfg.mixed_complex_dtype)
-        + 2 * ci2_green_ab_a.astype(meas_ctx.cfg.mixed_complex_dtype),
+        chol_a.astype(cfg.mixed_real_dtype),
+        8 * ci2_green_a.astype(cfg.mixed_complex_dtype)
+        + 2 * ci2_green_ab_a.astype(cfg.mixed_complex_dtype),
         optimize="optimal",
     )
     lci2g_b = jnp.einsum(
         "gij,ij->g",
-        chol_b.astype(meas_ctx.cfg.mixed_real_dtype),
-        8 * ci2_green_b.astype(meas_ctx.cfg.mixed_complex_dtype)
-        + 2 * ci2_green_ab_b.astype(meas_ctx.cfg.mixed_complex_dtype),
+        chol_b.astype(cfg.mixed_real_dtype),
+        8 * ci2_green_b.astype(cfg.mixed_complex_dtype)
+        + 2 * ci2_green_ab_b.astype(cfg.mixed_complex_dtype),
         optimize="optimal",
     )
     e2_2_2_1 = -((lci2g_a + lci2g_b) @ (lg_a + lg_b)) / 2.0
 
-    if meas_ctx.cfg.memory_mode == "low":
+    if cfg.memory_mode == "low":
 
         def scan_over_chol(carry, x):
             chol_a_i, rot_chol_a_i, chol_b_i, rot_chol_b_i = x
@@ -405,29 +407,29 @@ def energy_kernel_u(
             )
             glgp_a_i = jnp.einsum(
                 "pi,it->pt", gl_a_i, greenp_a, optimize="optimal"
-            ).astype(meas_ctx.cfg.mixed_complex_dtype_testing)
+            ).astype(cfg.mixed_complex_dtype_testing)
             glgp_b_i = jnp.einsum(
                 "pi,it->pt", gl_b_i, greenp_b, optimize="optimal"
-            ).astype(meas_ctx.cfg.mixed_complex_dtype_testing)
+            ).astype(cfg.mixed_complex_dtype_testing)
             l2ci2_a = 0.5 * jnp.einsum(
                 "pt,qu,ptqu->",
                 glgp_a_i,
                 glgp_a_i,
-                ci2_aa.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+                ci2_aa.astype(cfg.mixed_real_dtype_testing),
                 optimize="optimal",
             )
             l2ci2_b = 0.5 * jnp.einsum(
                 "pt,qu,ptqu->",
                 glgp_b_i,
                 glgp_b_i,
-                ci2_bb.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+                ci2_bb.astype(cfg.mixed_real_dtype_testing),
                 optimize="optimal",
             )
             l2ci2_ab = jnp.einsum(
                 "pt,qu,ptqu->",
                 glgp_a_i,
                 glgp_b_i,
-                ci2_ab.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+                ci2_ab.astype(cfg.mixed_real_dtype_testing),
                 optimize="optimal",
             )
             carry[1] += l2ci2_a + l2ci2_b + l2ci2_ab
@@ -439,14 +441,14 @@ def energy_kernel_u(
     else:
         gl_a = jnp.einsum(
             "pj,gji->gpi",
-            green_a.astype(meas_ctx.cfg.mixed_complex_dtype),
-            chol_a.astype(meas_ctx.cfg.mixed_real_dtype),
+            green_a.astype(cfg.mixed_complex_dtype),
+            chol_a.astype(cfg.mixed_real_dtype),
             optimize="optimal",
         )
         gl_b = jnp.einsum(
             "pj,gji->gpi",
-            green_b.astype(meas_ctx.cfg.mixed_complex_dtype),
-            chol_b.astype(meas_ctx.cfg.mixed_real_dtype),
+            green_b.astype(cfg.mixed_complex_dtype),
+            chol_b.astype(cfg.mixed_real_dtype),
             optimize="optimal",
         )
         lci2_green_a = jnp.einsum(
@@ -467,29 +469,29 @@ def energy_kernel_u(
         )
         glgp_a = jnp.einsum(
             "gpi,it->gpt", gl_a, greenp_a, optimize="optimal"
-        ).astype(meas_ctx.cfg.mixed_complex_dtype_testing)
+        ).astype(cfg.mixed_complex_dtype_testing)
         glgp_b = jnp.einsum(
             "gpi,it->gpt", gl_b, greenp_b, optimize="optimal"
-        ).astype(meas_ctx.cfg.mixed_complex_dtype_testing)
+        ).astype(cfg.mixed_complex_dtype_testing)
         l2ci2_a = 0.5 * jnp.einsum(
             "gpt,gqu,ptqu->g",
             glgp_a,
             glgp_a,
-            ci2_aa.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+            ci2_aa.astype(cfg.mixed_real_dtype_testing),
             optimize="optimal",
         )
         l2ci2_b = 0.5 * jnp.einsum(
             "gpt,gqu,ptqu->g",
             glgp_b,
             glgp_b,
-            ci2_bb.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+            ci2_bb.astype(cfg.mixed_real_dtype_testing),
             optimize="optimal",
         )
         l2ci2_ab = jnp.einsum(
             "gpt,gqu,ptqu->g",
             glgp_a,
             glgp_b,
-            ci2_ab.astype(meas_ctx.cfg.mixed_real_dtype_testing),
+            ci2_ab.astype(cfg.mixed_real_dtype_testing),
             optimize="optimal",
         )
         e2_2_3 = l2ci2_a.sum() + l2ci2_b.sum() + l2ci2_ab.sum()
