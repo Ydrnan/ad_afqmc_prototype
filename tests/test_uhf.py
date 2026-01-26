@@ -11,7 +11,8 @@ from ad_afqmc_prototype.core.ops import k_energy, k_force_bias
 from ad_afqmc_prototype.core.system import System
 from ad_afqmc_prototype.ham.chol import HamChol
 from ad_afqmc_prototype.meas.auto import make_auto_meas_ops
-from ad_afqmc_prototype.meas.uhf import make_uhf_meas_ops, energy_kernel_u, energy_kernel_r, energy_kernel_g, build_meas_ctx
+from ad_afqmc_prototype.meas.uhf import make_uhf_meas_ops, build_meas_ctx
+from ad_afqmc_prototype.meas.uhf import energy_kernel_r, energy_kernel_u, energy_kernel_g
 from ad_afqmc_prototype.trial.uhf import UhfTrial, make_uhf_trial_ops
 from ad_afqmc_prototype import testing
 
