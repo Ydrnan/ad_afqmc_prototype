@@ -26,12 +26,17 @@ def rand_orthonormal_cols(key, nrow, ncol, dtype=jnp.complex128):
     q, _ = jnp.linalg.qr(a, mode="reduced")
     return q.astype(dtype)
 
-def make_random_ham_chol(key, norb, n_chol, dtype=jnp.float64) -> HamChol:
+def make_random_ham_chol(key, norb, n_chol, basis="restricted", dtype=jnp.float64) -> HamChol:
     """
-    Build a small 'restricted' HamChol with:
+    Build a small HamChol with:
       - symmetric real h1
       - symmetric real chol[g]
     """
+    assert basis in ["restricted", "generalized"]
+
+    if basis == "generalized":
+        norb = 2*norb
+
     k1, k2, k3 = jax.random.split(key, 3)
     
     a = jax.random.normal(k1, (norb, norb), dtype=dtype)
@@ -42,7 +47,7 @@ def make_random_ham_chol(key, norb, n_chol, dtype=jnp.float64) -> HamChol:
     
     h0 = jax.random.normal(k3, (), dtype=dtype)
 
-    return HamChol(basis="restricted", h0=h0, h1=h1, chol=chol)
+    return HamChol(basis=basis, h0=h0, h1=h1, chol=chol)
 
 def make_walkers(key, sys: System, dtype=jnp.complex128):
     """
@@ -109,12 +114,18 @@ def make_common_auto(
     make_trial_fn_kwargs=(),
     make_trial_ops_fn,
     make_meas_ops_fn,
+    ham_basis="restricted",
     ):
     sys = System(norb=norb, nelec=nelec, walker_kind=walker_kind)
 
     k_ham, k_trial = jax.random.split(key, 2)
 
-    ham = make_random_ham_chol(k_ham, norb=norb, n_chol=n_chol)
+    ham = make_random_ham_chol(
+        k_ham,
+        norb=norb,
+        n_chol=n_chol,
+        basis=ham_basis
+    )
     trial = make_trial_fn(k_trial, **make_trial_fn_kwargs)
 
     t_ops = make_trial_ops_fn(sys)
