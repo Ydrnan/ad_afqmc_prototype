@@ -75,6 +75,7 @@ def _make_ucisd_trial(
     "walker_kind,norb,nup,ndn,n_chol",
     [
         ("unrestricted", 4, 2, 1, 5),
+        ("generalized", 4, 2, 1, 5),
     ],
 )
 def test_auto_force_bias_matches_manual_ucisd(walker_kind, norb, nup, ndn, n_chol):

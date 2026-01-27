@@ -93,7 +93,7 @@ class UcisdMeasCtx:
 
 def force_bias_kernel_u(
     walker: tuple[jax.Array, jax.Array],
-    ham_data: Any,
+    ham_data: HamChol,
     meas_ctx: UcisdMeasCtx,
     trial_data: UcisdTrial,
 ) -> jax.Array:
@@ -202,6 +202,152 @@ def force_bias_kernel_u(
     overlap = 1.0 + overlap_1 + overlap_2
 
     return (fb_0 + fb_1 + fb_2) / overlap
+
+def force_bias_kernel_g(
+    walker: jax.Array,
+    ham_data: HamChol,
+    meas_ctx: UcisdMeasCtx,
+    trial_data: UcisdTrial,
+) -> jax.Array:
+    c1a = trial_data.c1a
+    c1b = trial_data.c1b
+    c2aa = trial_data.c2aa
+    c2ab = trial_data.c2ab
+    c2bb = trial_data.c2bb
+    norb = trial_data.norb
+    n_oa, n_ob = trial_data.nocc
+    nocc = n_oa + n_ob
+    n_va, n_vb = trial_data.nvir
+    nvir = n_va + n_vb
+    c_a = trial_data.mo_coeff_a
+    c_b = trial_data.mo_coeff_b
+
+    cfg = meas_ctx.cfg
+
+    w = jnp.vstack(
+        [walker[:norb], c_b.T @ walker[norb:, :]]
+    )  # put walker_dn in the basis of alpha reference
+
+    Atrial, Btrial = (
+        c_a[:, :n_oa],
+        c_b[:, :n_ob],
+    )
+
+    bra = jnp.block(
+        [
+            [Atrial, 0 * Btrial],
+            [
+                0 * Atrial,
+                (c_b.T @ c_b)[:, :n_ob],
+            ],
+        ]
+    )
+
+    # Half green function (U (V^\dag U)^{-1})^T
+    #        n_oa n_va n_ob n_vb
+    # n_oa (  1    2    3    4  )
+    # n_ob (  5    6    7    8  )
+    #
+    green = (w @ jnp.linalg.inv(bra.T.conj() @ w)).T
+
+    # (1, 2)
+    green_aa = green[:n_oa, :norb]
+    # (7, 8)
+    green_bb = green[n_oa:, norb:]
+    # (3, 4)
+    green_ab = green[:n_oa, norb:]
+    # (5, 6)
+    green_ba = green[n_oa:, :norb]
+
+    # (2)
+    green_occ_aa = green_aa[:, n_oa:]
+    # (8)
+    green_occ_bb = green_bb[:, n_ob:]
+    # (4)
+    green_occ_ab = green_ab[:, n_ob:]
+    # (6)
+    green_occ_ba = green_ba[:, n_oa:]
+
+    green_occ = jnp.block(
+        [[green_occ_aa, green_occ_ab], [green_occ_ba, green_occ_bb]]
+    )
+
+    greenp_aa = jnp.vstack((green_occ_aa, -jnp.eye(n_va)))
+    greenp_bb = jnp.vstack((green_occ_bb, -jnp.eye(n_vb)))
+    greenp_ab = jnp.vstack((green_occ_ab, -jnp.zeros((n_va, n_vb))))
+    greenp_ba = jnp.vstack((green_occ_ba, -jnp.zeros((n_vb, n_va))))
+
+    greenp = jnp.block([[greenp_aa, greenp_ab], [greenp_ba, greenp_bb]])
+
+    chol_aa = ham_data.chol
+    chol_bb = meas_ctx.chol_b
+    nchol = jnp.shape(chol_aa)[0]
+
+    rot_chol_aa = chol_aa[:, :n_oa, :]
+    rot_chol_bb = chol_bb[:, :n_ob, :]
+
+    # Ref
+    # nu0 = jnp.einsum("gpq,pq->g", chol[:, :nocc, :], green)
+    nu0  = jnp.einsum("gpq,pq->g", rot_chol_aa, green_aa)
+    nu0 += jnp.einsum("gpq,pq->g", rot_chol_bb, green_bb)
+
+    # Single excitations
+    # nu1 = jnp.einsum("gpq,ia,pq,ia->g", rot_chol, ci1.conj(), green, green_occ)
+    nu1  = jnp.einsum("gpq,ia,pq,ia->g", rot_chol_aa, c1a.conj(), green_aa, green_occ_aa)
+    nu1 += jnp.einsum("gpq,ia,pq,ia->g", rot_chol_aa, c1b.conj(), green_aa, green_occ_bb)
+    nu1 += jnp.einsum("gpq,ia,pq,ia->g", rot_chol_bb, c1a.conj(), green_bb, green_occ_aa)
+    nu1 += jnp.einsum("gpq,ia,pq,ia->g", rot_chol_bb, c1b.conj(), green_bb, green_occ_bb)
+
+    # nu1 -= jnp.einsum("gpq,ia,iq,pa->g", chol, ci1.conj(), green, greenp)
+    nu1 -= jnp.einsum("gpq,ia,iq,pa->g", chol_aa, c1a.conj(), green_aa, greenp_aa)
+    nu1 -= jnp.einsum("gpq,ia,iq,pa->g", chol_aa, c1b.conj(), green_ba, greenp_ab)
+    nu1 -= jnp.einsum("gpq,ia,iq,pa->g", chol_bb, c1a.conj(), green_ab, greenp_ba)
+    nu1 -= jnp.einsum("gpq,ia,iq,pa->g", chol_bb, c1b.conj(), green_bb, greenp_bb)
+
+    # Double excitations
+    # nu2 = 2.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol, ci2.conj(), green, green_occ, green_occ)
+    nu2  = 2.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_aa, c2aa.conj(), green_aa, green_occ_aa, green_occ_aa)
+    nu2 += 2.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_aa, c2bb.conj(), green_aa, green_occ_bb, green_occ_bb)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_aa, c2ab.conj(), green_aa, green_occ_aa, green_occ_bb)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pq,ib,ja->g", rot_chol_aa, c2ab.conj(), green_aa, green_occ_ab, green_occ_ba)
+    nu2 += 2.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_bb, c2aa.conj(), green_bb, green_occ_aa, green_occ_aa)
+    nu2 += 2.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_bb, c2bb.conj(), green_bb, green_occ_bb, green_occ_bb)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pq,ia,jb->g", rot_chol_bb, c2ab.conj(), green_bb, green_occ_aa, green_occ_bb)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pq,ib,ja->g", rot_chol_bb, c2ab.conj(), green_bb, green_occ_ab, green_occ_ba)
+
+    # nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol, ci2.conj(), greenp, green, green_occ)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_aa, c2aa.conj(), greenp_aa, green_aa, green_occ_aa)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_aa, c2bb.conj(), greenp_ab, green_ba, green_occ_bb)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_aa, c2ab.conj(), greenp_aa, green_aa, green_occ_bb)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pa,jq,ib->g", chol_aa, c2ab.conj(), greenp_aa, green_ba, green_occ_ab)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pb,iq,ja->g", chol_aa, c2ab.conj(), greenp_ab, green_aa, green_occ_ba)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pb,jq,ia->g", chol_aa, c2ab.conj(), greenp_ab, green_ba, green_occ_aa)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_bb, c2aa.conj(), greenp_ba, green_ab, green_occ_aa)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_bb, c2bb.conj(), greenp_bb, green_bb, green_occ_bb)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pa,iq,jb->g", chol_bb, c2ab.conj(), greenp_ba, green_ab, green_occ_bb)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pa,jq,ib->g", chol_bb, c2ab.conj(), greenp_ba, green_bb, green_occ_ab)
+    nu2 += 4.0 * jnp.einsum("gpq,iajb,pb,iq,ja->g", chol_bb, c2ab.conj(), greenp_bb, green_ab, green_occ_ba)
+    nu2 -= 4.0 * jnp.einsum("gpq,iajb,pb,jq,ia->g", chol_bb, c2ab.conj(), greenp_bb, green_bb, green_occ_aa)
+
+    nu2 *= 0.25
+
+    nu = nu0 + nu1 + nu2
+
+    # o1 = jnp.einsum("ia,ia->", ci1.conj(), green_occ)
+    o1 = jnp.einsum("ia,ia->", c1a.conj(), green_occ_aa)
+    o1 += jnp.einsum("ia,ia->", c1b.conj(), green_occ_bb)
+
+    # o2 = 0.5 * jnp.einsum("iajb, ia, jb->", ci2.conj(), green_occ, green_occ)
+    o2 = jnp.einsum("iajb, ia, jb", c2aa, green_occ_aa, green_occ_aa)
+    o2 += jnp.einsum("iajb, ia, jb", c2bb, green_occ_bb, green_occ_bb)
+    o2 += 2.0 * jnp.einsum("iajb, ia, jb", c2ab, green_occ_aa, green_occ_bb)
+    o2 -= 2.0 * jnp.einsum("iajb, ib, ja", c2ab, green_occ_ab, green_occ_ba)
+    o2 = 0.5 * o2
+
+    overlap = 1.0 + o1 + o2
+    nu = nu / overlap
+
+    return nu
 
 
 def energy_kernel_u(
@@ -1087,7 +1233,7 @@ def make_ucisd_meas_ops(sys: System) -> MeasOps:
         return MeasOps(
             overlap=overlap_g,
             build_meas_ctx=build_meas_ctx,
-            kernels={k_energy: energy_kernel_g},
+            kernels={k_force_bias: force_bias_kernel_g, k_energy: energy_kernel_g},
         )
 
     raise ValueError(f"unknown walker_kind: {sys.walker_kind}")
