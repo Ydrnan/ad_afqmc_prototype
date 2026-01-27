@@ -99,6 +99,7 @@ def force_bias_kernel_r(
     trial_data: UcisdTrial,
 ) -> jax.Array:
     """Calculates force bias < psi_T | chol_gamma | walker > / < psi_T | walker >"""
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     return force_bias_kernel_u((walker, walker), ham_data, meas_ctx, trial_data) 
 
 
@@ -367,6 +368,7 @@ def energy_kernel_r(
     meas_ctx: UcisdMeasCtx,
     trial_data: UcisdTrial,
 ) -> jax.Array:
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     return energy_kernel_u((walker, walker), ham_data, meas_ctx, trial_data)
 
 

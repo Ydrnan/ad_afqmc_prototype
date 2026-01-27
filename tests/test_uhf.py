@@ -13,6 +13,7 @@ from ad_afqmc_prototype.ham.chol import HamChol
 from ad_afqmc_prototype.meas.auto import make_auto_meas_ops
 from ad_afqmc_prototype.meas.uhf import make_uhf_meas_ops, build_meas_ctx
 from ad_afqmc_prototype.meas.uhf import energy_kernel_r, energy_kernel_u, energy_kernel_g
+from ad_afqmc_prototype.meas.uhf import force_bias_kernel_r, force_bias_kernel_u
 from ad_afqmc_prototype.trial.uhf import UhfTrial, make_uhf_trial_ops
 from ad_afqmc_prototype import testing
 
@@ -113,7 +114,44 @@ def test_auto_energy_matches_manual_uhf(walker_kind, norb, nup, ndn, n_chol):
 
         assert jnp.allclose(ea, em, rtol=5e-6, atol=5e-7), (ea, em)
 
-def test_energy_equal_when_wu_eq_wd():
+def test_force_bias_equal_when_wu_eq_wr():
+    norb = 6
+    nup, ndn = 2, 2
+    n_chol = 8
+    walker_kind = "restricted"
+
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing.make_common_manual_only(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_uhf_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_uhf_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing.make_walkers(jax.random.fold_in(k_w, i), sys)
+        fbr = force_bias_kernel_r(wi, ham, ctx, trial)
+        fbu = force_bias_kernel_u((wi, wi), ham, ctx, trial)
+
+        assert jnp.allclose(fbr, fbu, atol=1e-12), (fbr, fbu)
+
+def test_energy_equal_when_wu_eq_wr():
     norb = 6
     nup, ndn = 2, 2
     n_chol = 8

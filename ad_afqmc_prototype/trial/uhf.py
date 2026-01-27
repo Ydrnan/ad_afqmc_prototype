@@ -53,6 +53,7 @@ def get_rdm1(trial_data: UhfTrial) -> jax.Array:
 
 
 def overlap_r(walker: jax.Array, trial_data: UhfTrial) -> jax.Array:
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     w = walker
     cu = trial_data.mo_coeff_a.conj().T @ w  # (nocc[0], nocc[0])
     cd = trial_data.mo_coeff_b.conj().T @ w  # (nocc[1], nocc[1])

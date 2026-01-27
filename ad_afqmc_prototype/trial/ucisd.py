@@ -97,6 +97,7 @@ def get_rdm1(trial_data: UcisdTrial) -> jax.Array:
 
 
 def overlap_r(walker: jax.Array, trial_data: UcisdTrial) -> jax.Array:
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     return overlap_u((walker, walker), trial_data)
 
 

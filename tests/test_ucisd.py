@@ -14,7 +14,8 @@ from ad_afqmc_prototype.core.system import System
 from ad_afqmc_prototype.ham.chol import HamChol
 from ad_afqmc_prototype.meas.auto import make_auto_meas_ops
 from ad_afqmc_prototype.meas.ucisd import make_ucisd_meas_ops, build_meas_ctx
-from ad_afqmc_prototype.meas.ucisd import energy_kernel_u, energy_kernel_g
+from ad_afqmc_prototype.meas.ucisd import energy_kernel_r, energy_kernel_u, energy_kernel_g
+from ad_afqmc_prototype.meas.ucisd import force_bias_kernel_r, force_bias_kernel_u, force_bias_kernel_g
 from ad_afqmc_prototype.trial.ucisd import UcisdTrial, make_ucisd_trial_ops
 from ad_afqmc_prototype import testing
 
@@ -163,6 +164,125 @@ def test_auto_energy_matches_manual_ucisd(walker_kind, norb, nup, ndn, n_chol):
         e_m = e_manual(wi, ham, ctx_manual, trial)
         e_a = e_auto(wi, ham, ctx_auto, trial)
         assert jnp.allclose(e_a, e_m, rtol=5e-6, atol=5e-7), (e_a, e_m)
+
+def test_force_bias_equal_when_wr_eq_wu():
+    norb = 6
+    nup, ndn = 2, 2
+    n_chol = 8
+    walker_kind = "unrestricted"
+
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing.make_common_manual_only(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_ucisd_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_ucisd_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing.make_walkers(jax.random.fold_in(k_w, i), sys)
+        wa, wb = wi
+        wi = (wa, wa)
+        fbu = force_bias_kernel_u(wi, ham, ctx, trial)
+        fbr = force_bias_kernel_r(wa, ham, ctx, trial)
+
+        assert jnp.allclose(fbu, fbr, atol=1e-12), (fbu, fbr)
+
+def test_force_bias_equal_when_wg_eq_wu():
+    norb = 6
+    nup, ndn = 3, 2
+    n_chol = 8
+    walker_kind = "unrestricted"
+
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing.make_common_manual_only(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_ucisd_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_ucisd_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing.make_walkers(jax.random.fold_in(k_w, i), sys)
+        fbu = force_bias_kernel_u(wi, ham, ctx, trial)
+        wa, wb = wi
+        wi = jnp.zeros((2*norb, nup+ndn), dtype=wa.dtype)
+        wi = lax.dynamic_update_slice(wi, wa, (0,0))
+        wi = lax.dynamic_update_slice(wi, wb, (norb,nup))
+        fbg = force_bias_kernel_g(wi, ham, ctx, trial)
+
+        assert jnp.allclose(fbu, fbg, atol=1e-12), (fbu, fbg)
+
+def test_energy_equal_when_wr_eq_wu():
+    norb = 6
+    nup, ndn = 2, 2
+    n_chol = 8
+    walker_kind = "unrestricted"
+
+    key = jax.random.PRNGKey(1)
+    key, k_w = jax.random.split(key)
+
+    (
+        sys,
+        ham,
+        trial,
+        ctx,
+    ) = testing.make_common_manual_only(
+        key,
+        walker_kind,
+        norb,
+        (nup, ndn),
+        n_chol,
+        make_trial_fn=_make_ucisd_trial,
+        make_trial_fn_kwargs=dict(
+            norb=norb,
+            nup=nup,
+            ndn=ndn,
+        ),
+        make_trial_ops_fn=make_ucisd_trial_ops,
+        build_meas_ctx_fn=build_meas_ctx,
+    )
+
+    for i in range(4):
+        wi = testing.make_walkers(jax.random.fold_in(k_w, i), sys)
+        wa, wb = wi
+        wi = (wa, wa)
+        eu = energy_kernel_u(wi, ham, ctx, trial)
+        er = energy_kernel_r(wa, ham, ctx, trial)
+
+        assert jnp.allclose(eu, er, atol=1e-12), (eu, er)
 
 def test_energy_equal_when_wg_eq_wu():
     norb = 6

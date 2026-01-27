@@ -25,6 +25,7 @@ def force_bias_kernel_r(
     meas_ctx: UhfMeasCtx,
     trial_data: UhfTrial,
 ) -> jax.Array: 
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     w = walker
     mu = trial_data.mo_coeff_a.conj().T @ w
     md = trial_data.mo_coeff_b.conj().T @ w
@@ -65,6 +66,7 @@ def energy_kernel_r(
     meas_ctx: UhfMeasCtx,
     trial_data: UhfTrial,
 ) -> jax.Array:
+    assert trial_data.nocc[0] == trial_data.nocc[1]
     w = walker
     mu = trial_data.mo_coeff_a.conj().T @ w
     md = trial_data.mo_coeff_b.conj().T @ w
