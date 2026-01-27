@@ -75,6 +75,7 @@ def _make_ucisd_trial(
     "walker_kind,norb,nup,ndn,n_chol",
     [
         ("unrestricted", 4, 2, 1, 5),
+        ("generalized", 4, 2, 1, 5),
     ],
 )
 def test_auto_force_bias_matches_manual_ucisd(walker_kind, norb, nup, ndn, n_chol):
@@ -203,4 +204,5 @@ def test_energy_equal_when_wg_eq_wu():
         assert jnp.allclose(eu, eg, atol=1e-12), (eu, eg)
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    test_auto_force_bias_matches_manual_ucisd("generalized", 6, 3, 2, 8)
+    #pytest.main([__file__])
