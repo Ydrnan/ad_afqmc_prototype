@@ -313,8 +313,8 @@ def force_bias_kernel_g(
     chol_bb = meas_ctx.chol_b
     nchol = jnp.shape(chol_aa)[0]
 
-    rot_chol_aa = chol_aa[:, :n_oa, :]
-    rot_chol_bb = chol_bb[:, :n_ob, :]
+    rot_chol_aa = meas_ctx.rot_chol_a
+    rot_chol_bb = meas_ctx.rot_chol_b
 
     # Ref
     # nu0 = jnp.einsum("gpq,pq->g", chol[:, :nocc, :], green)

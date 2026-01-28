@@ -3,7 +3,7 @@ from ad_afqmc_prototype.wrapper.rhf import Rhf
 
 r = 1.0
 mol = gto.M(
-    atom=f"H 0 0 0; H 0 0 {1.0*r}; H 0 0 {2.0*r}; H 0 0 {3.0*r}",
+    atom=f"H 0 0 0; H 0 0 {1.0*r}", #; H 0 0 {2.0*r}; H 0 0 {3.0*r}",
     basis="sto-6g",
     verbose=3,
 )

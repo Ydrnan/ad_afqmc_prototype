@@ -179,22 +179,29 @@ def energy_kernel_g(
     g_ab = g[:na, norb:]
     g_ba = g[na:, :norb]
 
+    rot_h1_a = meas_ctx.rot_h1_a
+    rot_h1_b = meas_ctx.rot_h1_b
+
+    rot_chol_a = meas_ctx.rot_chol_a
+    rot_chol_b = meas_ctx.rot_chol_b
+
     e0 = ham_data.h0
 
-    e1 = jnp.sum(g_aa * meas_ctx.rot_h1_a) + jnp.sum(g_bb * meas_ctx.rot_h1_b)
+    e1 = jnp.sum(g_aa * rot_h1_a) + jnp.sum(g_bb * rot_h1_b)
 
-    f_up = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_a, g_aa.T, optimize="optimal")
-    f_dn = jnp.einsum("gij,jk->gik", meas_ctx.rot_chol_b, g_bb.T, optimize="optimal")
+    f_up = jnp.einsum("gij,jk->gik", rot_chol_a, g_aa.T, optimize="optimal")
+    f_dn = jnp.einsum("gij,jk->gik", rot_chol_b, g_bb.T, optimize="optimal")
     c_up = jax.vmap(jnp.trace)(f_up)
     c_dn = jax.vmap(jnp.trace)(f_dn)
     J = jnp.sum(c_up * c_up) + jnp.sum(c_dn * c_dn) + 2.0 * jnp.sum(c_up * c_dn)
 
-    K = jnp.sum(jax.vmap(lambda x: x * x.T)(f_up)) + jnp.sum(
-        jax.vmap(lambda x: x * x.T)(f_dn)
+    K = (
+        jnp.sum(jax.vmap(lambda x: x * x.T)(f_up))
+        + jnp.sum(jax.vmap(lambda x: x * x.T)(f_dn))
     )
 
-    f_ab = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_a, g_ba.T, optimize="optimal")
-    f_ba = jnp.einsum("gip,pj->gij", meas_ctx.rot_chol_b, g_ab.T, optimize="optimal")
+    f_ab = jnp.einsum("gip,pj->gij", rot_chol_a, g_ba.T, optimize="optimal")
+    f_ba = jnp.einsum("gip,pj->gij", rot_chol_b, g_ab.T, optimize="optimal")
     K += 2.0 * jnp.sum(jax.vmap(lambda x, y: x * y.T)(f_ab, f_ba))
 
     return e0 + e1 + (J - K) / 2.0
