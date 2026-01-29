@@ -21,9 +21,17 @@ def get_integrals(mf):
     mol = mf.mol
     h0 = mf.energy_nuc()
     h1 = np.array(mf.mo_coeff.T @ mf.get_hcore() @ mf.mo_coeff)
-    eri = np.array(ao2mo.kernel(mol, mf.mo_coeff))
-    eri = ao2mo.restore(4, eri, mol.nao)
-    chol = integrals.modified_cholesky(eri, max_error=1e-6)
+    #eri = np.array(ao2mo.kernel(mol, mf.mo_coeff))
+    #eri = ao2mo.restore(4, eri, mol.nao)
+    #chol = integrals.modified_cholesky(eri, max_error=1e-6)
+    chol_vec = integrals.chunked_cholesky(mol)  
+
+    nchol = chol_vec.shape[0]
+    norb = mf.mo_coeff.shape[0]
+    chol = np.zeros((nchol, norb, norb))
+    for i in range(nchol):
+        chol_i = chol_vec[i].reshape(norb, norb)
+        chol[i] = mf.mo_coeff.T.conj() @ chol_i @ mf.mo_coeff
 
     h0=jnp.array(h0)
     h1=jnp.array(h1)
