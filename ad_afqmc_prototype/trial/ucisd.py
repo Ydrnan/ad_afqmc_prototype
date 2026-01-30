@@ -92,7 +92,7 @@ def get_rdm1(trial_data: UcisdTrial) -> jax.Array:
     occ_a = jnp.arange(norb) < n_oa
     c_b = trial_data.mo_coeff_b
     dm_a = jnp.diag(occ_a)     # (norb, norb)
-    dm_b = c_b @ c_b.conj().T  # (norb, norb)
+    dm_b = c_b[:,:n_ob] @ c_b[:,:n_ob].conj().T  # (norb, norb)
     return jnp.stack([dm_a, dm_b], axis=0)  # (2, norb, norb)
 
 
