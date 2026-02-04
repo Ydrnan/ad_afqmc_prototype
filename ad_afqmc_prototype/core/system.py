@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Tuple
 
-walker_kind = Literal["restricted", "unrestricted", "generalized"]
+WalkerKind = Literal["restricted", "unrestricted", "generalized"]
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class System:
 
     norb: int
     nelec: Tuple[int, int]
-    walker_kind: walker_kind
+    walker_kind: WalkerKind
 
     @property
     def nup(self) -> int:
