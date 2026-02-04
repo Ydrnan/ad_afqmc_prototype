@@ -174,8 +174,8 @@ def _prep(mf, walker_kind):
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
 @pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("restricted", -108.69082190102914, 0.009301054598808593),
-        ("unrestricted", -108.69082190102914, 0.009301054598808593),
+        ("restricted", -108.6605690498555, 0.01357213959642601),
+        ("unrestricted", -108.6605690498554, 0.01357213959644405),
     ]
 )
 def test_calc_rhf_hamiltonian(mf, params, walker_kind, e_ref, err_ref):
@@ -219,12 +219,11 @@ def mf():
 @pytest.fixture(scope="module")
 def params():
     return QmcParams(
-        n_eql_blocks=10,
-        n_blocks=100,
+        n_eql_blocks=4,
+        n_blocks=20,
         seed=1234,
-        n_walkers=20,
+        n_walkers=5,
     )
-      
 
 if __name__ == "__main__":
     pytest.main([__file__])

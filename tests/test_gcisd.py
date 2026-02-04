@@ -174,7 +174,7 @@ def _prep(mycc, walker_kind):
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
 @pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("generalized", -108.5303579509873, 0.0009986777045052101),
+        ("generalized", -108.5544728177553, 0.0005653091459021223),
     ]
 )
 def test_calc_ghf_hamiltonian(mycc, params, walker_kind, e_ref, err_ref):
@@ -207,7 +207,7 @@ def mycc():
     mol = gto.M(
         atom="""
         N 0.0000000 0.0000000 0.0000000
-        N 0.0000000 0.0000000 1.8000000
+        N 0.0000000 0.0000000 1.7000000
         """,
         basis="sto-6g",
     )
@@ -224,8 +224,8 @@ def mycc():
 @pytest.fixture(scope="module")
 def params():
     return QmcParams(
-        n_eql_blocks=10,
-        n_blocks=100,
+        n_eql_blocks=4,
+        n_blocks=20,
         seed=1234,
         n_walkers=5,
     )

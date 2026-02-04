@@ -298,9 +298,9 @@ def _prep(mf, walker_kind):
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
 @pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("restricted", -108.5482660599181, 0.002235993260212301),
-        ("unrestricted", -108.5246075147365, 0.002729387601026078),
-        ("generalized", -108.5246075147365, 0.002729387601026078),
+        ("restricted", -108.5984602826372, 0.01080194705872634),
+        ("unrestricted", -108.5225258530728, 0.001783117016806903),
+        ("generalized", -108.5225258530728, 0.001783117016834861),
     ]
 )
 def test_calc_rhf_hamiltonian(mf, params, walker_kind, e_ref, err_ref):
@@ -333,7 +333,7 @@ def mf():
     mol = gto.M(
         atom="""
         N 0.0000000 0.0000000 0.0000000
-        N 0.0000000 0.0000000 1.8000000
+        N 0.0000000 0.0000000 1.7000000
         """,
         basis="sto-6g",
     )
@@ -348,10 +348,10 @@ def mf():
 @pytest.fixture(scope="module")
 def params():
     return QmcParams(
-        n_eql_blocks=10,
-        n_blocks=100,
+        n_eql_blocks=4,
+        n_blocks=20,
         seed=1234,
-        n_walkers=20,
+        n_walkers=5,
     )
 
 

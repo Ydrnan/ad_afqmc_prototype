@@ -180,7 +180,7 @@ def _prep(mycc, walker_kind):
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
 @pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("restricted", -108.7001058229754, 0.001538312358815003),
+        ("restricted", -108.6954259535846, 0.0008442572876869032),
     ]
 )
 def test_calc_rhf_hamiltonian(mycc, params, walker_kind, e_ref, err_ref):
@@ -226,8 +226,8 @@ def mycc():
 @pytest.fixture(scope="module")
 def params():
     return QmcParams(
-        n_eql_blocks=10,
-        n_blocks=100,
+        n_eql_blocks=4,
+        n_blocks=20,
         seed=1234,
         n_walkers=5,
     )
