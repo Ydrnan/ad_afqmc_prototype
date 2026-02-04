@@ -67,7 +67,7 @@ def _get_dm(rdm1: jax.Array, ham_basis: str) -> jax.Array:
         case "generalized":
             dm = rdm1
         case _:
-            raise ValueError(f"Unknown Hamiltonian basis kind: {ham_data.basis}")
+            raise ValueError(f"Unknown Hamiltonian basis kind: {ham_basis}")
     return dm
 
 def _mf_shifts(ham_data: HamChol, rdm1: jax.Array) -> jax.Array:
