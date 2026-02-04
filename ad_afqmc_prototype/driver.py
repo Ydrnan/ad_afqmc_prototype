@@ -208,20 +208,20 @@ def run_qmc_energy(
         stats = blocking_analysis_ratio(
             jnp.asarray(block_e_s), jnp.asarray(block_w_s), print_q=False
         )
-        mu = float(stats["mu"])
-        se = float(stats["se_star"])
+        mu = stats["mu"]
+        se = stats["se_star"]
         nodes = int(state.node_encounters)
         print(
             f"[blk {start + n:4d}/{params.n_blocks}]  "
             f"{mu:14.10f}  "
-            f"{se:10.3e}  "
-            f"{float(e_chunk_avg):14.10f}  "
+            f"{(f'{se:10.3e}' if se is not None else ' ' * 10)}  "
+            f"{float(e_chunk_avg):16.10f}  "
             f"{float(w_chunk_avg):12.6e}  "
             f"{nodes:10d}  "
             f"{dt_per_block:9.3f}  "
             f"{elapsed:8.1f}"
         )
-        if se <= target_error and target_error > 0.0:
+        if se is not None and se <= target_error and target_error > 0.0:
             print(f"\nTarget error {target_error:.3e} reached at block {start + n}.")
             break
     block_e_s = jnp.asarray(block_e_s)
