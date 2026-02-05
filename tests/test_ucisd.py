@@ -359,10 +359,44 @@ def _prep(mycc, walker_kind):
 
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
-@pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("restricted", -108.5328346681576, 0.002657608997546602),
-        ("unrestricted", -108.5303579494134, 0.0009986779507680341),
-        ("generalized", -108.5303579494134, 0.0009986779507680341),
+def mycc():
+    mol = gto.M(
+        atom="""
+        O        0.0000000000      0.0000000000      0.0000000000
+        H        0.9562300000      0.0000000000      0.0000000000
+        H       -0.2353791634      0.9268076728      0.0000000000
+        """,
+        basis="sto-6g",
+    )
+    mf = scf.UHF(mol).newton()
+    mf.kernel()
+    mycc = cc.UCCSD(mf)
+    mycc.kernel()
+    return mycc
+
+def mycc2():
+    mol = gto.M(
+        atom="""
+        N        0.0000000000      0.0000000000      0.0000000000
+        H        1.0225900000      0.0000000000      0.0000000000
+        H       -0.2281193615      0.9968208791      0.0000000000
+        """,
+        basis="sto-6g",
+        spin=1,
+    )
+    mf = scf.UHF(mol).newton()
+    mf.kernel()
+    mycc = cc.UCCSD(mf)
+    mycc.kernel()
+    return mycc
+
+mycc = mycc()
+mycc2 = mycc2()
+
+@pytest.mark.parametrize("mycc, walker_kind, e_ref, err_ref", [
+        (mycc,  "restricted"  , -75.72869717787768, 0.0002352900295176637),
+        (mycc2, "unrestricted", -55.41533781603285, 0.0001071700818560977),
+        (mycc2, "generalized" , -55.41533781630213, 0.0001071700909047719),
     ]
 )
 def test_calc_rhf_hamiltonian(mycc, params, walker_kind, e_ref, err_ref):
@@ -387,36 +421,17 @@ def test_calc_rhf_hamiltonian(mycc, params, walker_kind, e_ref, err_ref):
         block_fn,
         prop_ops,
     )
-    assert jnp.isclose(mean, e_ref)
-
-@pytest.fixture(scope="module")
-def mycc():
-    mol = gto.M(
-        atom="""
-        N 0.0000000 0.0000000 0.0000000
-        N 0.0000000 0.0000000 1.8000000
-        """,
-        basis="sto-6g",
-    )
-    mf = scf.UHF(mol)
-    mf.kernel()
-    mo1 = mf.stability()[0]
-    dm1 = mf.make_rdm1(mo1, mf.mo_occ)
-    mf = mf.run(dm1)
-    mf.stability()
-    mycc = cc.UCCSD(mf)
-    mycc.kernel()
-    return mycc
+    assert jnp.isclose(mean, e_ref), (mean, e_ref, mean - e_ref)
+    assert jnp.isclose(err, err_ref), (err, err_ref, err - err_ref)
 
 @pytest.fixture(scope="module")
 def params():
     return QmcParams(
-        n_eql_blocks=10,
-        n_blocks=100,
+        n_eql_blocks=4,
+        n_blocks=20,
         seed=1234,
         n_walkers=5,
     )
-
 
 if __name__ == "__main__":
     pytest.main([__file__])
