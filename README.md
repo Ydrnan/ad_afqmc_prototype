@@ -23,10 +23,6 @@ For use on GPUs with CUDA, install as:
   pip install .[gpu]
 ```
 
-Currently MPI is only used for CPU calculations. To install with MPI support, use:
-
-```
-  pip install .[mpi]
-```
+CPU calculations are only parallelized with multithreading (no MPI).
 
 This code is interfaced with pyscf for electronic integral evaluation. Examples can be found in the examples/ directory.
