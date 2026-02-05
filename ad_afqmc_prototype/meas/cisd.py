@@ -383,7 +383,7 @@ def energy_kernel_rw_rh(
 
 def make_cisd_meas_ops(
     sys: System,
-    memory_mode: str = "low",
+    memory_mode: str = "high",
     mixed_precision: bool = True,
     testing: bool = False,
 ) -> MeasOps:
