@@ -297,10 +297,40 @@ def _prep(mf, walker_kind):
 
     return sys, ham_data, trial_data, trial_ops, prop_ops, meas_ops
 
-@pytest.mark.parametrize("walker_kind, e_ref, err_ref", [
-        ("restricted", -108.5984602826372, 0.01080194705872634),
-        ("unrestricted", -108.5225258530728, 0.001783117016806903),
-        ("generalized", -108.5225258530728, 0.001783117016834861),
+def mf():
+    mol = gto.M(
+        atom="""
+        O        0.0000000000      0.0000000000      0.0000000000
+        H        0.9562300000      0.0000000000      0.0000000000
+        H       -0.2353791634      0.9268076728      0.0000000000
+        """,
+        basis="sto-6g",
+    )
+    mf = scf.UHF(mol).newton()
+    mf.kernel()
+    return mf
+
+def mf2():
+    mol = gto.M(
+        atom="""
+        N        0.0000000000      0.0000000000      0.0000000000
+        H        1.0225900000      0.0000000000      0.0000000000
+        H       -0.2281193615      0.9968208791      0.0000000000
+        """,
+        basis="sto-6g",
+        spin=1,
+    )
+    mf = scf.UHF(mol).newton()
+    mf.kernel()
+    return mf
+
+mf = mf()
+mf2 = mf2()
+
+@pytest.mark.parametrize("mf, walker_kind, e_ref, err_ref", [
+        (mf , "restricted"  , -75.75594187783527, 0.01213383697785241),
+        (mf2, "unrestricted", -55.43066756011652, 0.00761980459817991),
+        (mf2, "generalized" , -55.43066756011653, 0.007619804598170696),
     ]
 )
 def test_calc_rhf_hamiltonian(mf, params, walker_kind, e_ref, err_ref):
@@ -325,25 +355,8 @@ def test_calc_rhf_hamiltonian(mf, params, walker_kind, e_ref, err_ref):
         block_fn,
         prop_ops,
     )
-    assert jnp.isclose(mean, e_ref)
-    assert jnp.isclose(err, err_ref)
-
-@pytest.fixture(scope="module")
-def mf():
-    mol = gto.M(
-        atom="""
-        N 0.0000000 0.0000000 0.0000000
-        N 0.0000000 0.0000000 1.7000000
-        """,
-        basis="sto-6g",
-    )
-    mf = scf.UHF(mol)
-    mf.kernel()
-    mo1 = mf.stability()[0]
-    dm1 = mf.make_rdm1(mo1, mf.mo_occ)
-    mf = mf.run(dm1)
-    mf.stability()
-    return mf
+    assert jnp.isclose(mean, e_ref), (mean, e_ref, mean - e_ref)
+    assert jnp.isclose(err, err_ref), (err, err_ref, err - err_ref)
 
 @pytest.fixture(scope="module")
 def params():
@@ -353,7 +366,6 @@ def params():
         seed=1234,
         n_walkers=5,
     )
-
 
 if __name__ == "__main__":
     pytest.main([__file__])
