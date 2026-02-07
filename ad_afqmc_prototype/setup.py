@@ -145,6 +145,17 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
         meas_ops = make_ucisd_meas_ops(sys=sys)
         return trial_data, trial_ops, meas_ops
 
+    if kind == "gcisd":
+        from .meas.gcisd import make_gcisd_meas_ops
+        from .trial.gcisd import GcisdTrial, make_gcisd_trial_ops
+
+        ci1 = jnp.asarray(data["ci1"])
+        ci2 = jnp.asarray(data["ci2"])
+        trial_data = GcisdTrial(data["mo_coeff"], ci1, ci2)
+        trial_ops = make_gcisd_trial_ops(sys=sys)
+        meas_ops = make_gcisd_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
+
     raise ValueError(f"Unsupported TrialInput.kind: {tr.kind!r}")
 
 
@@ -250,6 +261,7 @@ def setup(
         jnp.asarray(ham.h0),
         jnp.asarray(ham.h1),
         jnp.asarray(ham.chol),
+        basis=ham.basis
     )
 
     if params_kwargs is None:

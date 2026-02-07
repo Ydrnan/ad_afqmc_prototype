@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
+from .ham.chol import HamBasis
 
 import h5py
 import numpy as np
@@ -188,6 +189,7 @@ class HamInput:
     chol_cut: float
     norb_frozen: int
     source_kind: str  # "mf" or "cc"
+    basis: HamBasis # "restricted" or "generalized" 
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +358,13 @@ def _stage_ham_input(
     else:
         raise TypeError(f"Unsupported SCF type for staging: {type(scf_obj)}")
 
+    if isinstance(scf_obj, (RHF, ROHF, UHF)):
+        ham_basis = "restricted"
+    elif isinstance(scf_obj, GHF):
+        ham_basis = "generalized"
+    else:
+        raise TypeError(f"Unreachable")
+
     # nuclear energy (without frozen core correction)
     h0 = float(scf_obj.energy_nuc())
 
@@ -429,6 +438,7 @@ def _stage_ham_input(
         chol_cut=float(chol_cut),
         norb_frozen=int(norb_frozen),
         source_kind=source_kind,
+        basis=ham_basis,
     )
 
 
@@ -440,12 +450,15 @@ def _stage_trial_input(
     """
     from pyscf.cc.ccsd import CCSD
     from pyscf.cc.uccsd import UCCSD
+    from pyscf.cc.gccsd import GCCSD
 
     if _is_cc_like(obj):
         if isinstance(obj, UCCSD):
             ansatz = "ucisd"
         elif isinstance(obj, CCSD):
             ansatz = "cisd"
+        elif isinstance(obj, GCCSD):
+            ansatz = "gcisd"
         else:
             raise TypeError(f"Unsupported CC type: {type(obj)}")
     else:
@@ -474,6 +487,13 @@ def _stage_trial_input(
             norb_frozen=norb_frozen,
         )
 
+    if ansatz == "gcisd":
+        return _stage_gcisd_input(
+            obj,
+            source_kind=source_kind,
+            norb_frozen=norb_frozen,
+        )
+
     raise ValueError(f"Unknown ansatz: {ansatz}")
 
 
@@ -486,15 +506,16 @@ def _stage_mf_input(
     from pyscf.scf.hf import RHF
     from pyscf.scf.rohf import ROHF
     from pyscf.scf.uhf import UHF
+    from pyscf.scf.ghf import GHF
 
     assert isinstance(
-        scf_obj, (RHF, ROHF, UHF)
+        scf_obj, (RHF, ROHF, UHF, GHF)
     ), f"Unsupported obj type: {type(scf_obj)}"
 
     mol = scf_obj.mol
     S = scf_obj.get_ovlp(mol)
 
-    if isinstance(scf_obj, (RHF, ROHF)):
+    if isinstance(scf_obj, (RHF, ROHF, GHF)):
         C = np.asarray(scf_obj.mo_coeff)
         q, r = np.linalg.qr(C.T @ S @ C)
         sgn = np.sign(np.diag(r))
@@ -619,6 +640,45 @@ def _stage_ucisd_input(
     )
 
 
+def _stage_gcisd_input(
+    cc_obj: Any,
+    *,
+    source_kind: str,
+    norb_frozen: int,
+) -> TrialInput:
+    from pyscf.cc.gccsd import GCCSD
+
+    if not isinstance(cc_obj, GCCSD):
+        raise TypeError(f"ansatz='gcisd' expects a GCCSD object, got: {type(cc_obj)}")
+    _check_cc_frozen_consistency(cc_obj, norb_frozen)
+
+    if not hasattr(cc_obj, "t1") or not hasattr(cc_obj, "t2"):
+        raise ValueError("CC amplitudes not found; did you run cc.kernel()?")
+
+    ci2 = (
+        np.einsum("ijab->iajb", cc_obj.t2)
+        + np.einsum("ia,jb->iajb", cc_obj.t1, cc_obj.t1)
+        - np.einsum("ib,ja->iajb", cc_obj.t1, cc_obj.t1)
+    )
+    ci1 = np.asarray(cc_obj.t1)
+
+    scf_obj = cc_obj._scf
+    _ghf_input = _stage_mf_input(
+        scf_obj,
+        source_kind=source_kind,
+        norb_frozen=norb_frozen,
+    )
+    mo = _ghf_input.data["mo"]
+
+    data = {"mo_coeff": mo, "ci1": ci1, "ci2": ci2}
+    return TrialInput(
+        kind="gcisd",
+        data=data,
+        norb_frozen=int(norb_frozen),
+        source_kind=source_kind,
+    )
+
+
 def _check_cc_frozen_consistency(cc_obj: Any, norb_frozen: int) -> None:
     """
     Assert the user froze orbitals in CC the same as in staging.
@@ -648,6 +708,7 @@ def _dump_h5(staged: StagedInputs, path: Path) -> None:
         gham.attrs["chol_cut"] = staged.ham.chol_cut
         gham.attrs["norb_frozen"] = staged.ham.norb_frozen
         gham.attrs["source_kind"] = staged.ham.source_kind
+        gham.attrs["basis"] = staged.ham.basis
 
         gtr = f.create_group("trial")
         gtr.attrs["kind"] = staged.trial.kind
@@ -682,6 +743,7 @@ def _load_h5(path: Path) -> StagedInputs:
             chol_cut=float(gham.attrs["chol_cut"]),
             norb_frozen=int(gham.attrs["norb_frozen"]),
             source_kind=str(gham.attrs["source_kind"]),
+            basis=str(gham.attrs["basis"])
         )
 
         gtr: Any = f["trial"]
