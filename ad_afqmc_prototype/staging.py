@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple, Union
+from .ham.chol import HamBasis
 
 import h5py
 import numpy as np
@@ -188,6 +189,7 @@ class HamInput:
     chol_cut: float
     norb_frozen: int
     source_kind: str  # "mf" or "cc"
+    basis: HamBasis # "restricted" or "generalized"
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +249,10 @@ def stage(
     scf_obj, source_kind = _normalize_source(obj)
     mol = scf_obj.mol
 
+    # TODO: Replace the check. Since norb_frozen is override here,
+    # the later call to _check_cc_frozen_consistency has no effect.
+    # Also the condistency check must be done before computing the
+    # integrals, not after.
     if source_kind == "cc":
         if isinstance(obj.frozen, int):
             norb_frozen = obj.frozen
@@ -319,6 +325,8 @@ def load(path: Union[str, Path]) -> StagedInputs:
 def _is_cc_like(obj: Any) -> bool:
     return hasattr(obj, "t1") and hasattr(obj, "t2")
 
+def _is_mf_like(obj: Any) -> bool:
+    return hasattr(obj, "mo_coeff")
 
 def _normalize_source(obj: Any) -> tuple[Any, str]:
     """
@@ -356,6 +364,13 @@ def _stage_ham_input(
     else:
         raise TypeError(f"Unsupported SCF type for staging: {type(scf_obj)}")
 
+    if isinstance(scf_obj, (RHF, ROHF, UHF)):
+        ham_basis = "restricted"
+    elif isinstance(scf_obj, GHF):
+        ham_basis = "generalized"
+    else:
+        raise TypeError(f"Unreachable")
+
     # nuclear energy (without frozen core correction)
     h0 = float(scf_obj.energy_nuc())
 
@@ -372,37 +387,37 @@ def _stage_ham_input(
             f"[stage] AO cholesky: nchol={chol_vec.shape[0]} in {time.time() - t0:.2f}s"
         )
 
-    nchol = int(chol_vec.shape[0])
-    norb_full = int(basis_coeff.shape[1])
+    # full space electron count
+    nelec: Tuple[int, int] = (int(mol.nelec[0]), int(mol.nelec[1]))
 
+    # mo Cholesky
+    nchol = int(chol_vec.shape[0])
     C = np.asarray(basis_coeff)
     if not isinstance(scf_obj, GHF):
+        norb = int(basis_coeff.shape[1])
         Cdag = C.conj().T
         chol_ao = chol_vec.reshape(nchol, mol.nao, mol.nao)
         tmp = Cdag @ chol_ao
         chol = tmp @ C
     else:
         import scipy.linalg as la
-
-        norb = C.shape[0] // 2
-        chol = np.zeros((nchol, 2 * norb, 2 * norb), dtype=C.dtype)
+        norb = basis_coeff.shape[1] // 2
+        chol = np.zeros((nchol, 2*norb, 2*norb), dtype=C.dtype)
         for i in range(nchol):
             chol_i = chol_vec[i].reshape(norb, norb)
             bchol_i = la.block_diag(chol_i, chol_i)
             chol[i] = C.T.conj() @ bchol_i @ C
 
-    # full space electron count
-    nelec: Tuple[int, int] = (int(mol.nelec[0]), int(mol.nelec[1]))
-
     # freeze core
-    if norb_frozen > 0:
+    if norb_frozen > 0 and not isinstance(scf_obj, GHF):
         if norb_frozen > min(nelec):
             raise ValueError(
                 f"norb_frozen={norb_frozen} exceeds min(nelec)={min(nelec)}"
             )
 
-        ncas = mol.nao - norb_frozen
-        nelecas = mol.nelectron - 2 * norb_frozen
+        nelec_frozen = 2 * norb_frozen
+        ncas = basis_coeff.shape[1] - norb_frozen
+        nelecas = mol.nelectron - nelec_frozen
         if nelecas <= 0 or ncas <= 0:
             raise ValueError("Frozen core left no active electrons/orbitals.")
 
@@ -417,8 +432,8 @@ def _stage_ham_input(
         chol = chol[:, i0:i1, i0:i1]
         norb = int(ncas)
         nelec = tuple(int(x) for x in mc.nelecas)  # type: ignore
-    else:
-        norb = norb_full
+    elif norb_frozen > 0 and isinstance(scf_obj, GHF):
+        raise NotImplementedError(f"Frozen core approximation not available for generalised integrals.")
 
     return HamInput(
         h0=h0,
@@ -429,8 +444,8 @@ def _stage_ham_input(
         chol_cut=float(chol_cut),
         norb_frozen=int(norb_frozen),
         source_kind=source_kind,
+        basis=ham_basis,
     )
-
 
 def _stage_trial_input(
     obj: Any, *, scf_obj: Any, source_kind: str, norb_frozen: int
@@ -438,43 +453,37 @@ def _stage_trial_input(
     """
     Produce TrialInput consistent with the Hamiltonian basis and frozen core choice
     """
+    from pyscf.scf.hf import RHF
+    from pyscf.scf.rohf import ROHF
+    from pyscf.scf.uhf import UHF
+    from pyscf.scf.ghf import GHF
     from pyscf.cc.ccsd import CCSD
     from pyscf.cc.uccsd import UCCSD
+    from pyscf.cc.gccsd import GCCSD
 
     if _is_cc_like(obj):
-        if isinstance(obj, UCCSD):
-            ansatz = "ucisd"
-        elif isinstance(obj, CCSD):
-            ansatz = "cisd"
+        if isinstance(obj, CCSD):
+            stage_tr_fun = _stage_cisd_input
+        elif isinstance(obj, UCCSD):
+            stage_tr_fun = _stage_ucisd_input
+        elif isinstance(obj, GCCSD):
+            stage_tr_fun = _stage_gcisd_input
         else:
             raise TypeError(f"Unsupported CC type: {type(obj)}")
+    elif _is_mf_like(obj):
+        obj = scf_obj
+        if isinstance(obj, (RHF, ROHF, UHF, GHF)):
+            stage_tr_fun = _stage_mf_input
+        else:
+            raise TypeError(f"Unsupported SCF type: {type(obj)}")
     else:
-        ansatz = "slater"
+        raise TypeError(f"Unsupported object type: {type(obj)}")
 
-    ansatz = ansatz.lower()
-
-    if ansatz == "slater":
-        return _stage_mf_input(
-            scf_obj,
-            source_kind=source_kind,
-            norb_frozen=norb_frozen,
-        )
-
-    if ansatz == "cisd":
-        return _stage_cisd_input(
-            obj,
-            source_kind=source_kind,
-            norb_frozen=norb_frozen,
-        )
-
-    if ansatz == "ucisd":
-        return _stage_ucisd_input(
-            obj,
-            source_kind=source_kind,
-            norb_frozen=norb_frozen,
-        )
-
-    raise ValueError(f"Unknown ansatz: {ansatz}")
+    return stage_tr_fun(
+        obj,
+        source_kind=source_kind,
+        norb_frozen=norb_frozen,
+    )
 
 
 def _stage_mf_input(
@@ -486,46 +495,58 @@ def _stage_mf_input(
     from pyscf.scf.hf import RHF
     from pyscf.scf.rohf import ROHF
     from pyscf.scf.uhf import UHF
+    from pyscf.scf.ghf import GHF
 
     assert isinstance(
-        scf_obj, (RHF, ROHF, UHF)
+        scf_obj, (RHF, ROHF, UHF, GHF)
     ), f"Unsupported obj type: {type(scf_obj)}"
 
     mol = scf_obj.mol
     S = scf_obj.get_ovlp(mol)
 
-    if isinstance(scf_obj, (RHF, ROHF)):
-        C = np.asarray(scf_obj.mo_coeff)
-        q, r = np.linalg.qr(C.T @ S @ C)
-        sgn = np.sign(np.diag(r))
-        q = q * sgn[None, :]
-
-        q = q[norb_frozen:, norb_frozen:]
-        data = {"mo": np.asarray(q)}
+    if isinstance(scf_obj, (RHF, ROHF, GHF)):
+        Ca = np.asarray(scf_obj.mo_coeff)
+        mo = _mf_coeff_helper(Ca, Ca, S, norb_frozen)
+        data = {"mo": np.asarray(mo)}
 
     if isinstance(scf_obj, UHF):
         Ca = np.asarray(scf_obj.mo_coeff[0])
         Cb = np.asarray(scf_obj.mo_coeff[1])
 
         # basis is alpha MOs, represent alpha and beta orbitals in this basis
-        q, r = np.linalg.qr(Ca.T @ S @ Ca)
-        sgn = np.sign(np.diag(r))
-        moa = q * sgn[None, :]
-
-        q, r = np.linalg.qr(Ca.T @ S @ Cb)
-        sgn = np.sign(np.diag(r))
-        mob = q * sgn[None, :]
-
-        moa = moa[norb_frozen:, norb_frozen:]
-        mob = mob[norb_frozen:, norb_frozen:]
+        moa = _mf_coeff_helper(Ca, Ca, S, norb_frozen)
+        mob = _mf_coeff_helper(Ca, Cb, S, norb_frozen)
         data = {"mo_a": np.asarray(moa), "mo_b": np.asarray(mob)}
 
+    if isinstance(scf_obj, RHF):
+        kind = "rhf"
+    elif isinstance(scf_obj, ROHF) or isinstance(scf_obj, UHF):
+        kind = "uhf"
+    elif isinstance(scf_obj, GHF):
+        kind = "ghf"
+    else:
+        raise TypeError(f"Unreachable")
+
     return TrialInput(
-        kind="slater",
+        kind=kind,
         data=data,
         norb_frozen=int(norb_frozen),
         source_kind=source_kind,
     )
+
+
+def _mf_coeff_helper(
+    Ca: np.Array,
+    Cb: np.Array,
+    S: np.Array,
+    norb_frozen: int,
+) -> np.Array:
+    q, r = np.linalg.qr(Ca.T @ S @ Cb)
+    sgn = np.sign(np.diag(r))
+    q = q * sgn[None, :]
+    q = q[norb_frozen:, norb_frozen:]
+
+    return q
 
 
 def _stage_cisd_input(
@@ -619,6 +640,45 @@ def _stage_ucisd_input(
     )
 
 
+def _stage_gcisd_input(
+    cc_obj: Any,
+    *,
+    source_kind: str,
+    norb_frozen: int,
+) -> TrialInput:
+    from pyscf.cc.gccsd import GCCSD
+
+    if not isinstance(cc_obj, GCCSD):
+        raise TypeError(f"ansatz='gcisd' expects a GCCSD object, got: {type(cc_obj)}")
+    _check_cc_frozen_consistency(cc_obj, norb_frozen)
+
+    if not hasattr(cc_obj, "t1") or not hasattr(cc_obj, "t2"):
+        raise ValueError("CC amplitudes not found; did you run cc.kernel()?")
+
+    ci2 = (
+        np.einsum("ijab->iajb", cc_obj.t2)
+        + np.einsum("ia,jb->iajb", cc_obj.t1, cc_obj.t1)
+        - np.einsum("ib,ja->iajb", cc_obj.t1, cc_obj.t1)
+    )
+    ci1 = np.asarray(cc_obj.t1)
+
+    scf_obj = cc_obj._scf
+    _ghf_input = _stage_mf_input(
+        scf_obj,
+        source_kind=source_kind,
+        norb_frozen=norb_frozen,
+    )
+    mo = _ghf_input.data["mo"]
+
+    data = {"mo_coeff": mo, "ci1": ci1, "ci2": ci2}
+    return TrialInput(
+        kind="gcisd",
+        data=data,
+        norb_frozen=int(norb_frozen),
+        source_kind=source_kind,
+    )
+
+
 def _check_cc_frozen_consistency(cc_obj: Any, norb_frozen: int) -> None:
     """
     Assert the user froze orbitals in CC the same as in staging.
@@ -648,6 +708,7 @@ def _dump_h5(staged: StagedInputs, path: Path) -> None:
         gham.attrs["chol_cut"] = staged.ham.chol_cut
         gham.attrs["norb_frozen"] = staged.ham.norb_frozen
         gham.attrs["source_kind"] = staged.ham.source_kind
+        gham.attrs["basis"] = staged.ham.basis
 
         gtr = f.create_group("trial")
         gtr.attrs["kind"] = staged.trial.kind
@@ -682,6 +743,7 @@ def _load_h5(path: Path) -> StagedInputs:
             chol_cut=float(gham.attrs["chol_cut"]),
             norb_frozen=int(gham.attrs["norb_frozen"]),
             source_kind=str(gham.attrs["source_kind"]),
+            basis=str(gham.attrs["basis"])
         )
 
         gtr: Any = f["trial"]

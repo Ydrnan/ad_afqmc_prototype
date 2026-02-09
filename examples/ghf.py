@@ -1,20 +1,23 @@
-from pyscf import gto, scf, cc
-from ad_afqmc_prototype.wrapper.ghf import Ghf
+from pyscf import cc, gto, scf
 
-mol = gto.M(atom="""
-    N 0.0 0.0 0.0
-    N 2.5 0.0 0.0
+from ad_afqmc_prototype.afqmc import AFQMC
+
+mol = gto.M(
+    atom="""
+    N        0.0000000000      0.0000000000      0.0000000000
+    H        1.0225900000      0.0000000000      0.0000000000
+    H       -0.2281193615      0.9968208791      0.0000000000
     """,
     basis="6-31g",
+    spin=1,
     verbose=3,
 )
-mf = scf.GHF(mol)
+mf = scf.GHF(mol).newton()
 mf.kernel()
 
-mo1 = mf.stability()
-dm1 = mf.make_rdm1(mo1, mf.mo_occ)
-mf = mf.run(dm1)
-mf.stability()
-
-afqmc = Ghf(mf)
-mean, err, block_e_all, block_w_all = afqmc.kernel()
+afqmc = AFQMC(mf, chol_cut=1e-8)
+afqmc.mixed_precision = False
+afqmc.n_walkers = 100  # number of walkers
+afqmc.n_eql_blocks = 10  # number of equilibration blocks
+afqmc.n_blocks = 100  # number of sampling blocks
+mean, err = afqmc.kernel()

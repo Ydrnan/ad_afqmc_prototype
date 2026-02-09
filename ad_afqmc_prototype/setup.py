@@ -86,36 +86,42 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
 
     kind = tr.kind.lower()
 
-    if kind == "slater":
-        # RHF
-        if "mo" in data and sys.nup == sys.ndn:
-            from .meas.rhf import make_rhf_meas_ops
-            from .trial.rhf import RhfTrial, make_rhf_trial_ops
+    if kind == "rhf":
+        from .meas.rhf import make_rhf_meas_ops
+        from .trial.rhf import RhfTrial, make_rhf_trial_ops
 
-            mo = jnp.asarray(data["mo"])
-            mo_occ = mo[:, : sys.nup]
-            trial_data = RhfTrial(mo_occ)
-            trial_ops = make_rhf_trial_ops(sys=sys)
-            meas_ops = make_rhf_meas_ops(sys=sys)
-            return trial_data, trial_ops, meas_ops
+        mo = jnp.asarray(data["mo"])
+        mo_occ = mo[:, : sys.nup]
+        trial_data = RhfTrial(mo_occ)
+        trial_ops = make_rhf_trial_ops(sys=sys)
+        meas_ops = make_rhf_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
-        # ROHF/UHF
-        if "mo_a" in data or sys.nup != sys.ndn:
-            from .meas.uhf import make_uhf_meas_ops
-            from .trial.uhf import UhfTrial, make_uhf_trial_ops
+    if kind == "uhf":
+        from .meas.uhf import make_uhf_meas_ops
+        from .trial.uhf import UhfTrial, make_uhf_trial_ops
 
-            if "mo_a" in data and "mo_b" in data:
-                mo_a = jnp.asarray(data["mo_a"])[:, : sys.nup]
-                mo_b = jnp.asarray(data["mo_b"])[:, : sys.ndn]
-            elif "mo" in data:
-                mo_a = jnp.asarray(data["mo"])[:, : sys.nup]
-                mo_b = jnp.asarray(data["mo"])[:, : sys.ndn]
-            trial_data = UhfTrial(mo_a, mo_b)
-            trial_ops = make_uhf_trial_ops(sys=sys)
-            meas_ops = make_uhf_meas_ops(sys=sys)
-            return trial_data, trial_ops, meas_ops
+        if "mo_a" in data and "mo_b" in data:
+            mo_a = jnp.asarray(data["mo_a"])[:, : sys.nup]
+            mo_b = jnp.asarray(data["mo_b"])[:, : sys.ndn]
+        elif "mo" in data:
+            mo_a = jnp.asarray(data["mo"])[:, : sys.nup]
+            mo_b = jnp.asarray(data["mo"])[:, : sys.ndn]
+        trial_data = UhfTrial(mo_a, mo_b)
+        trial_ops = make_uhf_trial_ops(sys=sys)
+        meas_ops = make_uhf_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
-        raise KeyError("slater TrialInput expected keys {'mo'} or {'mo_a','mo_b'}.")
+    if kind == "ghf":
+        from .meas.ghf import make_ghf_meas_ops_chol
+        from .trial.ghf import GhfTrial, make_ghf_trial_ops
+
+        mo = jnp.asarray(data["mo"])
+        mo_occ = mo[:, :sys.ne]
+        trial_data = GhfTrial(mo_occ)
+        trial_ops = make_ghf_trial_ops(sys=sys)
+        meas_ops = make_ghf_meas_ops_chol(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
     if kind == "cisd":
         from .meas.cisd import make_cisd_meas_ops
@@ -143,6 +149,17 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
         )
         trial_ops = make_ucisd_trial_ops(sys=sys)
         meas_ops = make_ucisd_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
+
+    if kind == "gcisd":
+        from .meas.gcisd import make_gcisd_meas_ops
+        from .trial.gcisd import GcisdTrial, make_gcisd_trial_ops
+
+        ci1 = jnp.asarray(data["ci1"])
+        ci2 = jnp.asarray(data["ci2"])
+        trial_data = GcisdTrial(data["mo_coeff"], ci1, ci2)
+        trial_ops = make_gcisd_trial_ops(sys=sys)
+        meas_ops = make_gcisd_meas_ops(sys=sys)
         return trial_data, trial_ops, meas_ops
 
     raise ValueError(f"Unsupported TrialInput.kind: {tr.kind!r}")
@@ -192,7 +209,7 @@ def setup(
     overwrite: bool = False,
     verbose: bool = False,
     # system/prop options
-    walker_kind: WalkerKind = "restricted",
+    walker_kind: Optional[WalkerKind] = None,
     mixed_precision: bool = True,
     # params options
     params: Optional[QmcParams] = None,
@@ -244,12 +261,21 @@ def setup(
 
     ham = staged.ham
 
+    match walker_kind, ham.basis, ham.nelec[0] == ham.nelec[1]:
+        case None, "restricted", True:
+            walker_kind = "restricted"
+        case None, "restricted", False:
+            walker_kind = "unrestricted"
+        case None, "generalized", _:
+            walker_kind = "generalized"
+
     sys = System(norb=int(ham.norb), nelec=ham.nelec, walker_kind=walker_kind)
 
     ham_data = HamChol(
         jnp.asarray(ham.h0),
         jnp.asarray(ham.h1),
         jnp.asarray(ham.chol),
+        basis=ham.basis
     )
 
     if params_kwargs is None:

@@ -91,7 +91,7 @@ class AFQMC:
         self.overwrite_cache = False
         self.verbose = False
 
-        self.walker_kind: WalkerKind = "restricted"
+        self.walker_kind: Optional[WalkerKind] = None  # resolved in kernel
         self.mixed_precision = True
 
         self.params: Optional[QmcParams] = None  # resolved in kernel
