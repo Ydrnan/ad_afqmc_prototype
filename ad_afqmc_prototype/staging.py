@@ -211,8 +211,8 @@ class StagedInputs:
 
 @dataclass(frozen=True, slots=True)
 class StagedCc:
+    """Wrapper ensuring the validity of the CC object"""
     _delegate = {"t1", "t2", "_scf"}
-    #_delegate_mf = {"mo_coeff", "mol", "nelec", "get_ovlp", "norb"}
     kind: str # "ccsd", "uccsd", "gccsd"
     cc: Any
     mf: Any
@@ -282,8 +282,6 @@ class StagedCc:
     def __getattr__(self, name):
         if name in StagedCc._delegate:
             return getattr(self.cc, name)
-        #elif name in StagedCc._delegate_mf:
-        #    return getattr(self.mf, name)
         elif hasattr(self.cc, name):
             raise AttributeError(f"Attribute '{name}' exists in the CC object but not in this wrapper.")
         elif hasattr(self.mf, name):
@@ -293,6 +291,7 @@ class StagedCc:
 
 @dataclass(frozen=True, slots=True)
 class StagedMf:
+    """Wrapper ensuring the validity of the SCF object"""
     _delegate = {"mo_coeff", "mol", "nelec", "get_ovlp", "energy_nuc", "get_hcore"}
     kind: str # "rhf", "rohf", "uhf", ghf
     mf: Any # Python SCF object
@@ -364,6 +363,7 @@ class StagedMf:
 
 @dataclass(frozen=True, slots=True)
 class StagedMfOrCc:
+    """Wrapper ensuring the validity of the SCF/CC object"""
     _delegate_mf = StagedMf._delegate 
     _delegate_cc = StagedCc._delegate
     kind: str # StageCc.kind or StagedMf.kind
@@ -534,7 +534,7 @@ def _stage_ham_input(
         case "uhf":
             basis_coeff = np.asarray(scf_obj.mo_coeff[0])
         case _:
-            raise TypeError(f"Unreachable: '{scf_obj.kind}'.")
+            raise ValueError(f"Unreachable: '{scf_obj.kind}'.")
 
     match scf_obj.kind:
         case "rhf" | "rohf" | "uhf":
@@ -542,7 +542,7 @@ def _stage_ham_input(
         case "ghf":
             ham_basis = "generalized"
         case _:
-            raise TypeError(f"Unreachable: '{scf_obj.kind}'.")
+            raise ValueError(f"Unreachable: '{scf_obj.kind}'.")
 
     # nuclear energy (without frozen core correction)
     h0 = float(scf_obj.energy_nuc())
@@ -616,7 +616,7 @@ def _stage_ham_input(
         nelec=nelec,
         norb=norb,
         chol_cut=float(chol_cut),
-        norb_frozen=int(norb_frozen),
+        norb_frozen=norb_frozen,
         source_kind=obj.source,
         basis=ham_basis,
     )
@@ -688,7 +688,7 @@ def _mf_coeff_helper(
 
 def _stage_cisd_input(obj: StagedMfOrCc) -> TrialInput:
     if obj.kind != "ccsd":
-        raise TypeError(f"Unreachable: '{obj.kind}'.")
+        raise ValueError(f"Unreachable: '{obj.kind}'.")
 
     t1 = obj.t1
     t2 = obj.t2
@@ -710,7 +710,7 @@ def _stage_cisd_input(obj: StagedMfOrCc) -> TrialInput:
 
 def _stage_ucisd_input(obj: StagedMfOrCc) -> TrialInput:
     if obj.kind != "uccsd":
-        raise TypeError(f"Unreachable: '{obj.kind}'.")
+        raise ValueError(f"Unreachable: '{obj.kind}'.")
 
     t1a, t1b = obj.t1
     t2aa, t2ab, t2bb = obj.t2
@@ -756,7 +756,7 @@ def _stage_ucisd_input(obj: StagedMfOrCc) -> TrialInput:
 
 def _stage_gcisd_input(obj: StagedMfOrCc) -> TrialInput:
     if obj.kind != "gccsd":
-        raise TypeError(f"Unreachable: '{obj.kind}'.")
+        raise ValueError(f"Unreachable: '{obj.kind}'.")
 
     t1 = obj.t1
     t2 = obj.t2
