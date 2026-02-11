@@ -114,12 +114,6 @@ class AFQMC:
         self.block_energies: Any = None
         self.block_weights: Any = None
 
-        if self._cc is not None and getattr(self._cc, "frozen", None) is not None:
-            if not isinstance(self._cc.frozen, int):
-                raise TypeError("cc.frozen must be an int.")
-            if self.norb_frozen != int(self._cc.frozen):
-                self.norb_frozen = int(self._cc.frozen)
-
     @property
     def staged(self) -> Optional[StagedInputs]:
         return self._staged
