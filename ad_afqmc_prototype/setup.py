@@ -203,7 +203,7 @@ def setup(
     obj_or_staged: Union[Any, StagedInputs, str, Path],
     *,
     # staging options (used only if we need to stage)
-    norb_frozen: int = 0,
+    norb_frozen: Optional[int] = None,
     chol_cut: float = 1e-5,
     cache: Optional[Union[str, Path]] = None,
     overwrite: bool = False,

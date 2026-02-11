@@ -67,7 +67,7 @@ class AFQMC:
         self,
         mf_or_cc: Any,
         *,
-        norb_frozen: int = 0,
+        norb_frozen: Optional[int] = None,
         chol_cut: float = 1e-5,
         cache: Optional[Union[str, Path]] = None,
         n_eql_blocks: Optional[int] = None,
@@ -85,7 +85,7 @@ class AFQMC:
         else:
             self._scf = mf_or_cc
 
-        self.norb_frozen = int(norb_frozen)
+        self.norb_frozen = norb_frozen
         self.chol_cut = float(chol_cut)
         self.cache = Path(cache).expanduser().resolve() if cache is not None else None
         self.overwrite_cache = False
@@ -114,6 +114,7 @@ class AFQMC:
         self.block_energies: Any = None
         self.block_weights: Any = None
 
+
     @property
     def staged(self) -> Optional[StagedInputs]:
         return self._staged
@@ -122,27 +123,31 @@ class AFQMC:
     def job(self) -> Optional[Job]:
         return self._job
 
-    def dump_flags(self) -> None:
-        src = "cc" if self._cc is not None else "mf"
+    def dump_flags(self, job) -> None:
+        meta = job.staged.meta
+        src = meta["source_kind"]
+        norb_frozen = meta["norb_frozen"]
+        chol_cut = meta["chol_cut"]
+        sys = job.sys
+        nchol = job.staged.ham.chol.shape[0]
+        params = job.params
         print("******** AFQMC ********")
-        print(f" norb            = {self._scf.mo_coeff.shape[1] - self.norb_frozen}")
-        print(f" nelec_up        = {self._scf.mol.nelec[0] - self.norb_frozen}")
-        print(f" nelec_dn        = {self._scf.mol.nelec[1] - self.norb_frozen}")
-        if self._staged is not None:
-            print(f" nchol           = {self._staged.ham.chol.shape[0]}")
+        print(f" norb            = {sys.norb}")
+        print(f" nelec_up        = {sys.nelec[0]}")
+        print(f" nelec_dn        = {sys.nelec[1]}")
+        print(f" nchol           = {nchol}")
         print(f" source_kind     = {src}")
-        print(f" chol_cut        = {self.chol_cut:g}")
+        print(f" chol_cut        = {chol_cut:g}")
         print(f" cache           = {str(self.cache) if self.cache else None}")
-        print(f" walker_kind     = {self.walker_kind}")
-        print(f" mixed_precision = {self.mixed_precision}")
-        if self.params is not None:
-            print(" QmcParams:")
-            print(f"  dt             = {self.params.dt}")
-            print(f"  n_walkers      = {self.params.n_walkers}")
-            print(f"  n_chunk        = {self.params.n_chunks}")
-            print(f"  n_eql_blocks   = {self.params.n_eql_blocks}")
-            print(f"  n_blocks       = {self.params.n_blocks}")
-            print(f"  seed           = {self.params.seed}")
+        print(f" walker_kind     = {sys.walker_kind}")
+        print(f" mixed_precision = {self.mixed_precision}\n")
+        print(" QmcParams:")
+        print(f"  dt             = {params.dt}")
+        print(f"  n_walkers      = {params.n_walkers}")
+        print(f"  n_chunk        = {params.n_chunks}")
+        print(f"  n_eql_blocks   = {params.n_eql_blocks}")
+        print(f"  n_blocks       = {params.n_blocks}")
+        print(f"  seed           = {params.seed}\n")
 
     def _key(self) -> tuple:
         """Key for determining whether staged/job caches are still valid."""
@@ -258,7 +263,7 @@ class AFQMC:
         """
         print(banner_afqmc())
         job = self.build_job()
-        self.dump_flags()
+        self.dump_flags(job)
 
         out = job.kernel(**driver_kwargs)
 

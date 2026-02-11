@@ -252,8 +252,11 @@ class StagedCc:
 
         if not hasattr(cc, "frozen") or cc.frozen is None:
             assert (
-                norb_frozen == 0
+                norb_frozen == 0 or norb_frozen == None
             ), "cc has no frozen attribute, staging frozen must be 0."
+            norb_frozen = 0
+        elif norb_frozen is None:
+            norb_frozen = cc.frozen
         elif isinstance(cc.frozen, int):
             assert (
                 cc.frozen == norb_frozen
