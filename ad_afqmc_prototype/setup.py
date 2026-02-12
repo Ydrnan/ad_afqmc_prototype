@@ -77,7 +77,7 @@ def _make_prop(
     )
 
 
-def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any]:
+def _make_trial_bundle(sys: System, staged: StagedInputs, mixed_precision: bool) -> tuple[Any, Any, Any]:
     """
     Return (trial_data, trial_ops, meas_ops)
     """
@@ -131,7 +131,7 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
         ci2 = jnp.asarray(data["ci2"])
         trial_data = CisdTrial(ci1, ci2)
         trial_ops = make_cisd_trial_ops(sys=sys)
-        meas_ops = make_cisd_meas_ops(sys=sys)
+        meas_ops = make_cisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
         return trial_data, trial_ops, meas_ops
 
     if kind == "ucisd":
@@ -148,7 +148,7 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
             c2bb=jnp.asarray(data["ci2bb"]),
         )
         trial_ops = make_ucisd_trial_ops(sys=sys)
-        meas_ops = make_ucisd_meas_ops(sys=sys)
+        meas_ops = make_ucisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
         return trial_data, trial_ops, meas_ops
 
     if kind == "gcisd":
@@ -159,7 +159,7 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
         ci2 = jnp.asarray(data["ci2"])
         trial_data = GcisdTrial(data["mo_coeff"], ci1, ci2)
         trial_ops = make_gcisd_trial_ops(sys=sys)
-        meas_ops = make_gcisd_meas_ops(sys=sys)
+        meas_ops = make_gcisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
         return trial_data, trial_ops, meas_ops
 
     raise ValueError(f"Unsupported TrialInput.kind: {tr.kind!r}")
@@ -286,7 +286,7 @@ def setup(
     )
 
     if trial_data is None or trial_ops is None or meas_ops is None:
-        td, to, mo = _make_trial_bundle(sys, staged)
+        td, to, mo = _make_trial_bundle(sys, staged, mixed_precision)
         trial_data = td if trial_data is None else trial_data
         trial_ops = to if trial_ops is None else trial_ops
         meas_ops = mo if meas_ops is None else meas_ops
