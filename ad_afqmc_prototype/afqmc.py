@@ -63,13 +63,6 @@ class AFQMC:
         Number of walkers if params is not provided, by default None
     n_chunk : Optional[int], optional
         Number of chunks if params is not provided, by default 1
-
-    Notes:
-    The type of walkers cannot be changed from this interface and is purely determined
-    by the type of mf_or_cc:
-    - 'restricted' for RHF/ROHF(spin=0)/CCSD
-    - 'unrestricted' for UHF/ROHF(spin!=0)/UCCSD
-    - 'generalized' for GHF/GCISD
     """
 
     def __init__(
