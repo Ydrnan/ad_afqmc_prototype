@@ -44,7 +44,9 @@ class AFQMC:
     mf_or_cc : Any
         Mean-field or coupled-cluster object from which to build Hamiltonian and trial wavefunction.
     norb_frozen : int, optional
-        Number of orbitals to freeze (from the bottom), by default 0
+        Number of orbitals to freeze (from the bottom), by default 0 or cc.frozen
+        if mf_or_cc is a Pyscf SCF or CC instance, respectively. For CC instances,
+        norb_frozen cannot be set to a value differing fron cc.frozen.
     chol_cut : float, optional
         Cholesky decomposition cutoff, by default 1e-5
     cache : Union[str, Path], optional
@@ -61,6 +63,13 @@ class AFQMC:
         Number of walkers if params is not provided, by default None
     n_chunk : Optional[int], optional
         Number of chunks if params is not provided, by default 1
+
+    Notes:
+    The type of walkers cannot be changed from this interface and is purely determined
+    by the type of mf_or_cc:
+    - 'restricted' for RHF/ROHF(spin=0)/CCSD
+    - 'unrestricted' for UHF/ROHF(spin!=0)/UCCSD
+    - 'generalized' for GHF/GCISD
     """
 
     def __init__(
@@ -82,8 +91,10 @@ class AFQMC:
         if _is_cc_like(mf_or_cc):
             self._cc = mf_or_cc
             self._scf = mf_or_cc._scf
+            self.source_kind = "cc"
         else:
             self._scf = mf_or_cc
+            self.source_kind = "mf"
 
         self.norb_frozen = norb_frozen
         self.chol_cut = float(chol_cut)
@@ -131,12 +142,14 @@ class AFQMC:
         sys = job.sys
         nchol = job.staged.ham.chol.shape[0]
         params = job.params
+        trial = job.staged.trial
         print("******** AFQMC ********")
         print(f" norb            = {sys.norb}")
         print(f" nelec_up        = {sys.nelec[0]}")
         print(f" nelec_dn        = {sys.nelec[1]}")
         print(f" nchol           = {nchol}")
         print(f" source_kind     = {src}")
+        print(f" trial_kind      = {trial.kind}")
         print(f" chol_cut        = {chol_cut:g}")
         print(f" cache           = {str(self.cache) if self.cache else None}")
         print(f" walker_kind     = {sys.walker_kind}")
@@ -151,12 +164,11 @@ class AFQMC:
 
     def _key(self) -> tuple:
         """Key for determining whether staged/job caches are still valid."""
-        src = "cc" if self._cc is not None else "mf"
         cache_mtime = None
         if self.cache is not None and self.cache.exists():
             cache_mtime = self.cache.stat().st_mtime
         return (
-            src,
+            self.source_kind,
             self.norb_frozen,
             float(self.chol_cut),
             str(self.cache) if self.cache is not None else None,
@@ -191,13 +203,13 @@ class AFQMC:
         staged = self.stage()
         dump_staged(staged, path)
 
-    def load_staged(self, path: Union[str, Path]) -> StagedInputs:
-        """Load staged inputs from a cache file and attach them to this object."""
-        staged = load_staged(path)
-        self._staged = staged
-        self._cache_key = None
-        self._job = None
-        return staged
+    #def load_staged(self, path: Union[str, Path]): -> StagedInputs:
+    #    """Load staged inputs from a cache file and attach them to this object."""
+    #    staged = load_staged(path)
+    #    self._staged = staged
+    #    self._cache_key = None
+    #    self._job = None
+    #    return staged
 
     def _make_params(self) -> Optional[QmcParams]:
         """
@@ -284,3 +296,49 @@ class AFQMC:
         return e_tot, e_err
 
     run = kernel
+
+def from_staged(
+    path: Union[str, Path],
+    *,
+    n_eql_blocks: Optional[int] = None,
+    n_blocks: Optional[int] = None,
+    seed: Optional[int] = None,
+    dt: Optional[float] = None,
+    n_walkers: Optional[int] = None,
+    n_chunks: Optional[int] = 1,
+):
+    """
+    Returns a new AFQMC object from a previously staged calculations
+    (using save_staged method). The number of frozen orbitals, norb_frozen,
+    and the choliesky decomposition threshold, chol_cut, cannot be changed.
+    Parameters
+    ----------
+    path: str, pathlib.Path
+    The other parameters are identical to the ones in the AFQMC class.
+    """
+    staged = load_staged(path)
+    meta = staged.meta
+
+    mf_or_cc = None
+
+    # Cannot be changed as the input has been staged
+    norb_frozen = meta["norb_frozen"]
+    chol_cut = meta["chol_cut"]
+
+    af = AFQMC(
+        mf_or_cc,
+        norb_frozen=norb_frozen,
+        chol_cut=chol_cut,
+        n_eql_blocks=n_eql_blocks,
+        n_blocks=n_blocks,
+        seed=seed,
+        dt=dt,
+        n_walkers=n_walkers,
+        n_chunks=n_chunks,
+    )
+
+    af._staged = staged
+    af.source_kind = meta["source_kind"]
+    af._cache_key = af._key()
+
+    return af

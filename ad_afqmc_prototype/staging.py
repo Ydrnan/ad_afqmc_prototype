@@ -392,6 +392,8 @@ class StagedMfOrCc:
             mf_or_cc = StagedMf(mf_or_cc, norb_frozen)
             mf = mf_or_cc
             source = "mf"
+        else:
+            raise TypeError(f"Unreachable: '{type(mf_or_cc)}'")
 
         object.__setattr__(self, "mf_or_cc", mf_or_cc)
         object.__setattr__(self, "mf", mf)
@@ -408,9 +410,9 @@ class StagedMfOrCc:
             return getattr(self.mf_or_cc, name)
         elif name in StagedMfOrCc._delegate_mf:
             return getattr(self.mf, name)
-        elif hasattr(self._cc, name):
+        elif self.source == "cc" and hasattr(self.mf_or_cc.cc, name):
             raise AttributeError(f"Attribute '{name}' exists in the CC object but not in this wrapper.")
-        elif hasattr(self._mf, name):
+        elif hasattr(self.mf.mf, name):
             raise AttributeError(f"Attribute '{name}' exists in the SCF object but not in this wrapper.")
         else:
             raise AttributeError(f"Attribute '{name}' does not exist in the SCF and CC objects or in this wrapper.") 
