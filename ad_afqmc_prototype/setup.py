@@ -77,7 +77,7 @@ def _make_prop(
     )
 
 
-def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any]:
+def _make_trial_bundle(sys: System, staged: StagedInputs, mixed_precision: bool) -> tuple[Any, Any, Any]:
     """
     Return (trial_data, trial_ops, meas_ops)
     """
@@ -86,36 +86,42 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
 
     kind = tr.kind.lower()
 
-    if kind == "slater":
-        # RHF
-        if "mo" in data and sys.nup == sys.ndn:
-            from .meas.rhf import make_rhf_meas_ops
-            from .trial.rhf import RhfTrial, make_rhf_trial_ops
+    if kind == "rhf":
+        from .meas.rhf import make_rhf_meas_ops
+        from .trial.rhf import RhfTrial, make_rhf_trial_ops
 
-            mo = jnp.asarray(data["mo"])
-            mo_occ = mo[:, : sys.nup]
-            trial_data = RhfTrial(mo_occ)
-            trial_ops = make_rhf_trial_ops(sys=sys)
-            meas_ops = make_rhf_meas_ops(sys=sys)
-            return trial_data, trial_ops, meas_ops
+        mo = jnp.asarray(data["mo"])
+        mo_occ = mo[:, : sys.nup]
+        trial_data = RhfTrial(mo_occ)
+        trial_ops = make_rhf_trial_ops(sys=sys)
+        meas_ops = make_rhf_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
-        # ROHF/UHF
-        if "mo_a" in data or sys.nup != sys.ndn:
-            from .meas.uhf import make_uhf_meas_ops
-            from .trial.uhf import UhfTrial, make_uhf_trial_ops
+    if kind == "uhf":
+        from .meas.uhf import make_uhf_meas_ops
+        from .trial.uhf import UhfTrial, make_uhf_trial_ops
 
-            if "mo_a" in data and "mo_b" in data:
-                mo_a = jnp.asarray(data["mo_a"])[:, : sys.nup]
-                mo_b = jnp.asarray(data["mo_b"])[:, : sys.ndn]
-            elif "mo" in data:
-                mo_a = jnp.asarray(data["mo"])[:, : sys.nup]
-                mo_b = jnp.asarray(data["mo"])[:, : sys.ndn]
-            trial_data = UhfTrial(mo_a, mo_b)
-            trial_ops = make_uhf_trial_ops(sys=sys)
-            meas_ops = make_uhf_meas_ops(sys=sys)
-            return trial_data, trial_ops, meas_ops
+        if "mo_a" in data and "mo_b" in data:
+            mo_a = jnp.asarray(data["mo_a"])[:, : sys.nup]
+            mo_b = jnp.asarray(data["mo_b"])[:, : sys.ndn]
+        elif "mo" in data:
+            mo_a = jnp.asarray(data["mo"])[:, : sys.nup]
+            mo_b = jnp.asarray(data["mo"])[:, : sys.ndn]
+        trial_data = UhfTrial(mo_a, mo_b)
+        trial_ops = make_uhf_trial_ops(sys=sys)
+        meas_ops = make_uhf_meas_ops(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
-        raise KeyError("slater TrialInput expected keys {'mo'} or {'mo_a','mo_b'}.")
+    if kind == "ghf":
+        from .meas.ghf import make_ghf_meas_ops_chol
+        from .trial.ghf import GhfTrial, make_ghf_trial_ops
+
+        mo = jnp.asarray(data["mo"])
+        mo_occ = mo[:, :sys.ne]
+        trial_data = GhfTrial(mo_occ)
+        trial_ops = make_ghf_trial_ops(sys=sys)
+        meas_ops = make_ghf_meas_ops_chol(sys=sys)
+        return trial_data, trial_ops, meas_ops
 
     if kind == "cisd":
         from .meas.cisd import make_cisd_meas_ops
@@ -125,7 +131,7 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
         ci2 = jnp.asarray(data["ci2"])
         trial_data = CisdTrial(ci1, ci2)
         trial_ops = make_cisd_trial_ops(sys=sys)
-        meas_ops = make_cisd_meas_ops(sys=sys)
+        meas_ops = make_cisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
         return trial_data, trial_ops, meas_ops
 
     if kind == "ucisd":
@@ -142,7 +148,18 @@ def _make_trial_bundle(sys: System, staged: StagedInputs) -> tuple[Any, Any, Any
             c2bb=jnp.asarray(data["ci2bb"]),
         )
         trial_ops = make_ucisd_trial_ops(sys=sys)
-        meas_ops = make_ucisd_meas_ops(sys=sys)
+        meas_ops = make_ucisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
+        return trial_data, trial_ops, meas_ops
+
+    if kind == "gcisd":
+        from .meas.gcisd import make_gcisd_meas_ops
+        from .trial.gcisd import GcisdTrial, make_gcisd_trial_ops
+
+        ci1 = jnp.asarray(data["ci1"])
+        ci2 = jnp.asarray(data["ci2"])
+        trial_data = GcisdTrial(data["mo_coeff"], ci1, ci2)
+        trial_ops = make_gcisd_trial_ops(sys=sys)
+        meas_ops = make_gcisd_meas_ops(sys=sys, mixed_precision=mixed_precision)
         return trial_data, trial_ops, meas_ops
 
     raise ValueError(f"Unsupported TrialInput.kind: {tr.kind!r}")
@@ -186,13 +203,13 @@ def setup(
     obj_or_staged: Union[Any, StagedInputs, str, Path],
     *,
     # staging options (used only if we need to stage)
-    norb_frozen: int = 0,
+    norb_frozen: Optional[int] = None,
     chol_cut: float = 1e-5,
     cache: Optional[Union[str, Path]] = None,
     overwrite: bool = False,
     verbose: bool = False,
     # system/prop options
-    walker_kind: WalkerKind = "restricted",
+    walker_kind: Optional[WalkerKind] = None,
     mixed_precision: bool = True,
     # params options
     params: Optional[QmcParams] = None,
@@ -244,12 +261,21 @@ def setup(
 
     ham = staged.ham
 
+    match walker_kind, ham.basis, ham.nelec[0] == ham.nelec[1]:
+        case None, "restricted", True:
+            walker_kind = "restricted"
+        case None, "restricted", False:
+            walker_kind = "unrestricted"
+        case None, "generalized", _:
+            walker_kind = "generalized"
+
     sys = System(norb=int(ham.norb), nelec=ham.nelec, walker_kind=walker_kind)
 
     ham_data = HamChol(
         jnp.asarray(ham.h0),
         jnp.asarray(ham.h1),
         jnp.asarray(ham.chol),
+        basis=ham.basis
     )
 
     if params_kwargs is None:
@@ -260,7 +286,7 @@ def setup(
     )
 
     if trial_data is None or trial_ops is None or meas_ops is None:
-        td, to, mo = _make_trial_bundle(sys, staged)
+        td, to, mo = _make_trial_bundle(sys, staged, mixed_precision)
         trial_data = td if trial_data is None else trial_data
         trial_ops = to if trial_ops is None else trial_ops
         meas_ops = mo if meas_ops is None else meas_ops

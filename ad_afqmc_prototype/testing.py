@@ -7,7 +7,7 @@ from ad_afqmc_prototype.core.system import System
 from ad_afqmc_prototype.ham.chol import HamBasis, HamChol
 from ad_afqmc_prototype.meas.auto import make_auto_meas_ops
 from ad_afqmc_prototype.prop.afqmc import make_prop_ops
-from ad_afqmc_prototype.staging import _stage_ham_input
+from ad_afqmc_prototype.staging import _stage_ham_input, StagedMfOrCc
 
 
 def rand_orthonormal_cols(key, nrow, ncol, dtype=jnp.complex128):
@@ -188,9 +188,9 @@ def make_common_pyscf(
     walker_kind,
     ham_basis: HamBasis = "restricted",
 ):
-    # h0, h1, chol = pyscf_interface.get_integrals(mf)
+    obj = StagedMfOrCc(mf, norb_frozen=0)
     ham_input = _stage_ham_input(
-        mf, source_kind="scf", norb_frozen=0, chol_cut=1e-6, verbose=False
+        obj, chol_cut=1e-6, verbose=False
     )
     h0 = jnp.asarray(ham_input.h0)
     h1 = jnp.asarray(ham_input.h1)
